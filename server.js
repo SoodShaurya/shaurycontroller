@@ -119,6 +119,15 @@ app.get('/api/servers/:id/player-ips', asyncH(async (req, res) => {
   const s = requireServer(req, res); if (!s) return;
   res.json(await playerdata.playerIps(s.id));
 }));
+app.get('/api/servers/:id/online', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  const r = await mc.onlinePlayers(s.id);
+  if (r.players.some((p) => !p.uuid)) {
+    const n2u = playerdata.nameToUuid(s.id);
+    for (const p of r.players) if (!p.uuid) p.uuid = n2u[(p.name || '').toLowerCase()] || null;
+  }
+  res.json(r);
+}));
 app.get('/api/servers/:id/players/:uuid', asyncH(async (req, res) => {
   const s = requireServer(req, res); if (!s) return;
   res.json(await playerdata.readPlayer(s.id, req.params.uuid));

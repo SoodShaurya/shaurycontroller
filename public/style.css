@@ -233,6 +233,16 @@ body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -ap
 .player-item .pi-ips { color: var(--accent); font-size: 10px; font-family: var(--mono); margin-top: 2px; opacity: .85; word-break: break-all; }
 .players-sort { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .players-sort select { flex: 1; background: #0a0d12; border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12px; }
+.players-mode { display: flex; gap: 4px; background: #0a0d12; border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.players-mode .pm-btn { flex: 1; background: none; border: none; color: var(--muted); font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.players-mode .pm-btn:hover { color: var(--text); }
+.players-mode .pm-btn.active { background: var(--accent); color: #fff; }
+.pm-count { font-size: 10px; font-family: var(--mono); background: rgba(255,255,255,.18); border-radius: 8px; padding: 0 5px; min-width: 14px; text-align: center; }
+.pm-count:empty { display: none; }
+.players-side.online-mode .players-sort { display: none; }
+.online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--good); margin-right: 6px; box-shadow: 0 0 5px var(--good); vertical-align: middle; }
+.player-item.no-edit { cursor: default; opacity: .8; }
+.player-item.no-edit:hover { border-color: var(--line); }
 .ip-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px; margin-top: 6px; border-radius: 6px; background: #0a0d12; border: 1px solid var(--line); font-family: var(--mono); font-size: 11px; position: sticky; top: 0; }
 .ip-group-head:first-child { margin-top: 0; }
 .ip-group-head .ip-addr { color: var(--text); font-weight: 600; }

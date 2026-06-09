@@ -1152,6 +1152,7 @@ function loadPlayers() {
   loadAccess();
   api('GET', `/api/servers/${state.selected}/players`).then(({ players }) => { playersAll = players; renderPlayerList(); if (accessState) renderAccess(accessState); }).catch((e) => toast(e.message, true));
   api('GET', `/api/servers/${state.selected}/player-ips`).then(({ byName }) => { playerIpMap = byName || {}; renderPlayerList(); }).catch(() => {});
+  loadOnline({ auto: true }); // refresh the Online count/list too
 }
 // --- access control (whitelist / bans) ---
 function loadAccess() {
@@ -1210,25 +1211,41 @@ $('#accessPanel').addEventListener('keydown', (e) => {
 });
 let playerIpMap = {}; // lowerName -> { name, ips: [{ip, count}] }
 let playerSort = 'name';
+let playerView = 'all';            // 'all' | 'online'
+let onlinePlayers = [];            // [{name, uuid}] currently online
+let onlineMeta = { running: false, online: null, max: null };
 function ipsFor(p) { const r = playerIpMap[(p.name || '').toLowerCase()]; return r ? r.ips : []; }
-function playerItem(p) {
+function onlineNameSet() { return new Set(onlinePlayers.map((p) => (p.name || '').toLowerCase())); }
+function playerItem(p, isOnline) {
   const b = document.createElement('button');
   b.className = 'player-item' + (pState && pState.uuid === p.uuid ? ' active' : '');
   const ips = ipsFor(p);
   const ipLine = ips.length ? `<div class="pi-ips" title="IPs this player has logged in from">${ips.map((x) => esc(x.ip)).join(' · ')}</div>` : '';
-  b.innerHTML = `<div class="pi-name">${esc(p.name || '(unknown)')}</div><div class="uuid">${esc(p.uuid)}</div>${ipLine}`;
-  b.onclick = () => selectPlayer(p.uuid);
+  const dot = isOnline ? '<span class="online-dot" title="online now"></span>' : '';
+  b.innerHTML = `<div class="pi-name">${dot}${esc(p.name || '(unknown)')}</div>${p.uuid ? `<div class="uuid">${esc(p.uuid)}</div>` : ''}${ipLine}`;
+  if (p.uuid) b.onclick = () => selectPlayer(p.uuid); else b.classList.add('no-edit');
   return b;
 }
 function renderPlayerList() {
   const q = ($('#playerSearch').value || '').toLowerCase();
   const list = $('#playersList'); list.innerHTML = '';
-  const match = (p) => !q || (p.name || '').toLowerCase().includes(q) || p.uuid.includes(q);
-  if (playerSort === 'ip') return renderPlayerListByIp(q, match, list);
-  for (const p of playersAll) { if (match(p)) list.appendChild(playerItem(p)); }
+  if (playerView === 'online') return renderOnlineList(q, list);
+  const onSet = onlineNameSet();
+  const match = (p) => !q || (p.name || '').toLowerCase().includes(q) || (p.uuid || '').includes(q);
+  if (playerSort === 'ip') return renderPlayerListByIp(q, match, list, onSet);
+  for (const p of playersAll) { if (match(p)) list.appendChild(playerItem(p, onSet.has((p.name || '').toLowerCase()))); }
   if (!list.childElementCount) list.innerHTML = '<div class="muted" style="padding:8px">No players found.</div>';
 }
-function renderPlayerListByIp(q, match, list) {
+function renderOnlineList(q, list) {
+  if (!onlineMeta.running) { list.innerHTML = '<div class="muted" style="padding:8px">Server is not running.</div>'; return; }
+  const ps = onlinePlayers.filter((p) => !q || (p.name || '').toLowerCase().includes(q));
+  if (!ps.length) {
+    list.innerHTML = `<div class="muted" style="padding:8px">${onlineMeta.online ? 'Players online but names are hidden by the server.' : 'Nobody is online right now.'}</div>`;
+    return;
+  }
+  ps.forEach((p) => list.appendChild(playerItem(p, true)));
+}
+function renderPlayerListByIp(q, match, list, onSet = new Set()) {
   const groups = {}; const noIp = [];
   for (const p of playersAll) {
     if (!match(p)) continue;
@@ -1243,18 +1260,35 @@ function renderPlayerListByIp(q, match, list) {
     head.className = 'ip-group-head' + (ps.length > 1 ? ' shared' : '');
     head.innerHTML = `<span class="ip-addr">${esc(ip)}</span><span class="ip-count">${ps.length} account${ps.length > 1 ? 's' : ''}</span>`;
     list.appendChild(head);
-    ps.forEach((p) => list.appendChild(playerItem(p)));
+    ps.forEach((p) => list.appendChild(playerItem(p, onSet.has((p.name || '').toLowerCase()))));
   }
   if (noIp.length) {
     const head = document.createElement('div'); head.className = 'ip-group-head';
     head.innerHTML = `<span class="ip-addr muted">no logged IP</span><span class="ip-count">${noIp.length}</span>`;
     list.appendChild(head);
-    noIp.forEach((p) => list.appendChild(playerItem(p)));
+    noIp.forEach((p) => list.appendChild(playerItem(p, onSet.has((p.name || '').toLowerCase()))));
   }
   if (!list.childElementCount) list.innerHTML = '<div class="muted" style="padding:8px">No players found.</div>';
 }
+// Fetch who's online now (server-list ping). opts.auto silences errors during background refresh.
+async function loadOnline(opts = {}) {
+  if (!state.selected) return;
+  try {
+    const r = await api('GET', `/api/servers/${state.selected}/online`);
+    onlinePlayers = r.players || [];
+    onlineMeta = { running: r.running, online: r.online, max: r.max };
+    const c = $('#pmOnlineCount'); if (c) c.textContent = (r.running && r.online != null) ? r.online : '';
+    if ($('#tab-players').classList.contains('active')) renderPlayerList();
+  } catch (e) { if (!opts.auto) toast(e.message, true); }
+}
 $('#playerSearch').addEventListener('input', renderPlayerList);
 $('#playerSort').addEventListener('change', (e) => { playerSort = e.target.value; renderPlayerList(); });
+$$('.players-mode .pm-btn').forEach((btn) => btn.addEventListener('click', () => {
+  $$('.players-mode .pm-btn').forEach((b) => b.classList.toggle('active', b === btn));
+  playerView = btn.dataset.mode;
+  $('.players-side').classList.toggle('online-mode', playerView === 'online');
+  if (playerView === 'online') loadOnline(); else renderPlayerList();
+}));
 async function selectPlayer(uuid) {
   try {
     const d = await api('GET', `/api/servers/${state.selected}/players/${uuid}`);
@@ -1527,6 +1561,10 @@ function resolveAction(fc, response) {
   setInterval(() => {
     if (state.selected && !filesUploading && $('#tab-files').classList.contains('active')) loadFiles(state.cwd, { auto: true });
   }, 5000);
+  // auto-refresh the online-players list while that view is open
+  setInterval(() => {
+    if (state.selected && playerView === 'online' && $('#tab-players').classList.contains('active')) loadOnline({ auto: true });
+  }, 7000);
 })();
 function renderHostInfo() {
   const i = state.info; if (!i) return;

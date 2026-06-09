@@ -292,6 +292,43 @@ function refreshPlayers() {
 }
 setInterval(refreshPlayers, 5000).unref();
 
+// Who's online right now. Primary source is the server-list-ping player sample (names + UUIDs,
+// no console noise). If the server hides the sample but reports players online, fall back to the
+// `list` console command and parse its output (names only; UUIDs resolved by the caller).
+async function onlinePlayers(id) {
+  const s = cfg.getServer(id);
+  if (!s) throw Object.assign(new Error('no such server: ' + id), { status: 404 });
+  if (!isRunning(id)) return { running: false, online: 0, max: null, players: [], source: null };
+  const r = await ping('127.0.0.1', s.port, 2500);
+  if (!r) return { running: true, online: null, max: null, players: [], source: null };
+  let players = (r.sample || []).map((p) => ({ name: p.name, uuid: p.id || null }));
+  let source = 'ping';
+  if (!players.length && r.online > 0) {
+    const names = await listOnline(id);
+    if (names.length) { players = names.map((n) => ({ name: n, uuid: null })); source = 'list'; }
+  }
+  // de-dup by lowercased name (sample can occasionally repeat)
+  const seen = new Set();
+  players = players.filter((p) => { const k = (p.name || '').toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
+  players.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return { running: true, online: r.online, max: r.max, players, source };
+}
+// Send `list` and parse the "There are N of M players online: a, b, c" reply.
+async function listOnline(id) {
+  try {
+    sendCommand(id, 'list');
+    await new Promise((r) => setTimeout(r, 700));
+    const tail = consoleBacklog(id, 8000).split('\n').reverse();
+    for (const line of tail) {
+      const m = line.match(/There are \d+(?: of(?: a max of)? \d+)? players online:?\s*(.*)$/i);
+      if (m) {
+        return (m[1] || '').split(',').map((x) => x.replace(/§./g, '').replace(/\[[^\]]*\]/g, '').trim()).filter(Boolean);
+      }
+    }
+  } catch {}
+  return [];
+}
+
 function status(id) {
   const running = isRunning(id);
   const diskBytes = diskCache.has(id) ? diskCache.get(id) : null;
@@ -457,6 +494,6 @@ function reattachAll() {
 
 module.exports = {
   bus, isRunning, serverPid, start, stop, kill, restart, sendCommand,
-  status, consoleBacklog, ensureTailer, reattachAll,
+  status, consoleBacklog, ensureTailer, reattachAll, onlinePlayers,
   launchPreview, getHostMetrics, heapAndFlags, detectJavas, getNetwork,
 };

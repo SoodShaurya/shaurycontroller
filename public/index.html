@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>shaurycontroller</title>
-<link rel="stylesheet" href="style.css?v=20260609b" />
+<link rel="stylesheet" href="style.css?v=20260609c" />
 </head>
 <body>
 <div id="app">
@@ -131,6 +131,10 @@
         <div id="playersBanner" class="players-banner hidden"></div>
         <div class="players-layout">
           <div class="players-side">
+            <div class="players-mode">
+              <button type="button" class="pm-btn active" data-mode="all">All</button>
+              <button type="button" class="pm-btn" data-mode="online">Online <span id="pmOnlineCount" class="pm-count"></span></button>
+            </div>
             <input id="playerSearch" type="text" placeholder="Search players…" autocomplete="off" />
             <label class="players-sort">Sort
               <select id="playerSort">
@@ -306,6 +310,6 @@
   </form>
 </div>
 
-<script src="app.js?v=20260609b"></script>
+<script src="app.js?v=20260609c"></script>
 </body>
 </html>

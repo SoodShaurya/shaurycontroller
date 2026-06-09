@@ -62,6 +62,15 @@ function nameMap(id) {
   }
   return map;
 }
+// Reverse lookup: lowercased name -> uuid (from the same JSON caches). Used to make online
+// players (whose name we know from `list`) clickable through to their saved player-data.
+function nameToUuid(id) {
+  const map = {};
+  for (const file of ['usercache.json', 'ops.json', 'whitelist.json', 'banned-players.json']) {
+    for (const e of readArr(id, file)) if (e && e.uuid && e.name && !map[e.name.toLowerCase()]) map[e.name.toLowerCase()] = e.uuid;
+  }
+  return map;
+}
 
 // Some worlds (Paper/Spigot) store the name in the .dat as bukkit.lastKnownName — read it as a
 // fallback for players missing from the json caches. Cached per uuid+mtime so list loads stay fast.
@@ -259,4 +268,4 @@ async function writePlayer(id, uuid, edits) {
   return { ok: true, backup: path.basename(file) + '.bak' };
 }
 
-module.exports = { listPlayers, readPlayer, writePlayer, playerIps };
+module.exports = { listPlayers, readPlayer, writePlayer, playerIps, nameToUuid };

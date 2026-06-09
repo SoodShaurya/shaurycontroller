@@ -57,6 +57,7 @@ function ping(host, port, timeoutMs = 3000) {
           online: data.players ? data.players.online : null,
           max: data.players ? data.players.max : null,
           version: data.version ? data.version.name : null,
+          sample: (data.players && Array.isArray(data.players.sample)) ? data.players.sample : [],
         });
       } catch { finish(null); }
     });

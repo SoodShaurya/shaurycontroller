@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>shaurycontroller</title>
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=20260609" />
 </head>
 <body>
 <div id="app">
@@ -132,6 +132,12 @@
         <div class="players-layout">
           <div class="players-side">
             <input id="playerSearch" type="text" placeholder="Search players…" autocomplete="off" />
+            <label class="players-sort">Sort
+              <select id="playerSort">
+                <option value="name">by name</option>
+                <option value="ip">by IP (group alts)</option>
+              </select>
+            </label>
             <div id="playersList" class="players-list"></div>
           </div>
           <div id="playerEdit" class="player-edit"><div class="muted">Select a player to edit.</div></div>
@@ -272,6 +278,7 @@
     <label>Item id <input id="slotId" type="text" list="itemList" placeholder="minecraft:diamond" autocomplete="off" /></label>
     <datalist id="itemList"></datalist>
     <label>Count <input id="slotCount" type="text" inputmode="numeric" value="1" /></label>
+    <div id="slotContents" class="slot-contents hidden"></div>
     <div class="modal-actions">
       <button id="slotClear" class="btn btn-bad">Clear slot</button>
       <span class="spacer"></span>
@@ -288,9 +295,10 @@
 <div id="aiDrawer" class="ai-drawer hidden">
   <div class="ai-head">
     <div class="ai-title">Copilot <span id="aiModel" class="ai-model"></span></div>
+    <span id="aiFocus" class="ai-focus-pill hidden" title="the server this conversation is focused on"></span>
     <button id="aiClose" class="btn"></button>
   </div>
-  <div class="ai-note">Proposes actions; <b>nothing runs without your approval</b>. Focused on <span id="aiFocus" class="mono">—</span>.</div>
+  <div class="ai-note">Proposes actions — <b>nothing runs without your approval</b>.</div>
   <div id="aiThread" class="ai-thread"></div>
   <form id="aiForm" class="ai-input">
     <textarea id="aiInput" rows="1" placeholder="Ask anything — e.g. “give tardcentral 8G and restart”, or “what's eating CPU?”"></textarea>
@@ -298,6 +306,6 @@
   </form>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=20260609"></script>
 </body>
 </html>

@@ -218,6 +218,7 @@ function selectServer(id, tab = 'console') {
   connectWS(id);
   loadFiles('');
   loadBackups();
+  if (typeof updateAiFocus === 'function') updateAiFocus(); // keep copilot focus pill in sync
 }
 function connectWS(id) {
   if (state.ws) { state.ws.onclose = null; state.ws.close(); }
@@ -362,10 +363,10 @@ let edState = { path: '', mode: 'text', lines: [], entries: [] };
 async function openSmartEditor(rel) {
   try {
     const data = await api('GET', `/api/servers/${state.selected}/file?path=${encodeURIComponent(rel)}`);
-    edState = { path: rel, mode: 'text', lines: [], entries: [] };
+    edState = { path: rel, mode: 'text', lines: [], entries: [], json: null };
     $('#edTitle').textContent = rel;
     $('#edMsg').textContent = ''; $('#edMsg').className = 'muted';
-    $('#edModeBar').innerHTML = ''; $('#edForm').classList.add('hidden'); $('#edForm').innerHTML = '';
+    $('#edModeBar').innerHTML = ''; $('#edForm').classList.add('hidden'); $('#edForm').classList.remove('ed-json'); $('#edForm').innerHTML = '';
     $('#edContent').classList.remove('hidden');
     const ext = (rel.split('.').pop() || '').toLowerCase();
     if (ext === 'properties') buildPropsEditor(data.content);
@@ -409,16 +410,83 @@ function buildPropsEditor(content) {
   };
   form.appendChild(add);
 }
+// JSON gets a collapsible tree editor (edit values inline, expand/collapse, add/remove keys),
+// with a Raw-text toggle as a fallback for hand-editing or invalid files.
 function buildJsonEditor(content) {
-  edState.mode = 'json';
-  $('#edForm').classList.add('hidden');
-  const ta = $('#edContent'); ta.classList.remove('hidden');
-  let pretty = content; try { pretty = JSON.stringify(JSON.parse(content), null, 2); } catch {}
-  ta.value = pretty;
+  let parsed, ok = true;
+  try { parsed = JSON.parse(content); } catch { ok = false; }
+  if (!ok) return buildJsonRaw(content, 'Invalid JSON — editing as raw text.');
+  edState.mode = 'jsontree';
+  edState.json = parsed;
+  $('#edContent').classList.add('hidden');
+  const form = $('#edForm'); form.classList.remove('hidden'); form.classList.add('ed-json');
   $('#edModeBar').innerHTML = '<span class="ed-chip">json</span>';
+  const expand = mkBtn('Expand all', () => $$('.jt-children', form).forEach((c) => { c.classList.remove('hidden'); }));
+  const collapse = mkBtn('Collapse all', () => $$('.jt-children', form).forEach((c) => { c.classList.add('hidden'); }));
+  const raw = mkBtn('Raw text', () => buildJsonRaw(JSON.stringify(edState.json, null, 2)));
+  $('#edModeBar').append(expand, collapse, raw);
+  rebuildJsonTree();
+}
+function buildJsonRaw(content, note) {
+  edState.mode = 'json';
+  const form = $('#edForm'); form.classList.add('hidden'); form.classList.remove('ed-json'); form.innerHTML = '';
+  const ta = $('#edContent'); ta.classList.remove('hidden'); ta.value = content;
+  $('#edModeBar').innerHTML = '<span class="ed-chip">json · raw</span>';
   const fmt = mkBtn('Format', () => { try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); setEdMsg('formatted', false); } catch (e) { setEdMsg('Invalid JSON: ' + e.message, true); } });
-  const val = mkBtn('Validate', () => { try { JSON.parse(ta.value); setEdMsg('Valid JSON', false); } catch (e) { setEdMsg('Invalid: ' + e.message, true); } });
-  $('#edModeBar').append(fmt, val);
+  const tree = mkBtn('Tree', () => { try { JSON.parse(ta.value); buildJsonEditor(ta.value); setEdMsg('', false); } catch (e) { setEdMsg('Invalid JSON: ' + e.message, true); } });
+  $('#edModeBar').append(fmt, tree);
+  if (note) setEdMsg(note, true);
+}
+function rebuildJsonTree() {
+  const form = $('#edForm'); form.innerHTML = '';
+  const root = document.createElement('div'); root.className = 'json-tree';
+  if (edState.json !== null && typeof edState.json === 'object') jtRenderContainer(root, edState.json, 0);
+  else { const line = document.createElement('div'); line.className = 'jt-line'; line.append(jtInput(edState, 'json')); root.appendChild(line); }
+  form.appendChild(root);
+}
+function jtInput(container, key) {
+  const val = container[key];
+  let input;
+  if (typeof val === 'boolean') { input = document.createElement('input'); input.type = 'checkbox'; input.className = 'jt-bool'; input.checked = val; input.onchange = () => { container[key] = input.checked; }; }
+  else if (typeof val === 'number') { input = document.createElement('input'); input.type = 'number'; input.step = 'any'; input.className = 'jt-val'; input.value = val; input.oninput = () => { const n = parseFloat(input.value); container[key] = Number.isFinite(n) ? n : 0; }; }
+  else { input = document.createElement('input'); input.type = 'text'; input.className = 'jt-val'; input.value = val === null ? '' : String(val); if (val === null) input.placeholder = 'null'; input.oninput = () => { container[key] = input.value; }; }
+  return input;
+}
+function jtDelBtn(container, key, isArr) {
+  const del = document.createElement('button'); del.type = 'button'; del.className = 'jt-del'; del.title = 'remove'; del.textContent = '✕';
+  del.onclick = () => { if (isArr) container.splice(key, 1); else delete container[key]; rebuildJsonTree(); };
+  return del;
+}
+function jtRenderContainer(wrap, container, depth) {
+  const isArr = Array.isArray(container);
+  const keys = isArr ? container.map((_, i) => i) : Object.keys(container);
+  for (const k of keys) {
+    const val = container[k];
+    const keyEl = document.createElement('span'); keyEl.className = 'jt-key'; keyEl.textContent = (isArr ? '[' + k + ']' : k) + ':';
+    if (val !== null && typeof val === 'object') {
+      const isArr2 = Array.isArray(val);
+      const head = document.createElement('div'); head.className = 'jt-line jt-branch'; head.style.paddingLeft = (depth * 14) + 'px';
+      const caret = document.createElement('button'); caret.type = 'button'; caret.className = 'jt-caret'; caret.textContent = '▾';
+      const meta = document.createElement('span'); meta.className = 'jt-meta'; meta.textContent = isArr2 ? `[${val.length}]` : `{${Object.keys(val).length}}`;
+      const children = document.createElement('div'); children.className = 'jt-children';
+      caret.onclick = () => { const c = children.classList.toggle('hidden'); caret.textContent = c ? '▸' : '▾'; };
+      head.append(caret, keyEl, meta, jtDelBtn(container, k, isArr));
+      jtRenderContainer(children, val, depth + 1);
+      wrap.append(head, children);
+    } else {
+      const line = document.createElement('div'); line.className = 'jt-line'; line.style.paddingLeft = (depth * 14) + 'px';
+      line.append(keyEl, jtInput(container, k), jtDelBtn(container, k, isArr));
+      wrap.appendChild(line);
+    }
+  }
+  const add = document.createElement('div'); add.className = 'jt-add'; add.style.paddingLeft = (depth * 14) + 'px';
+  if (isArr) {
+    add.append(mkBtn('+ item', () => { container.push(''); rebuildJsonTree(); }));
+  } else {
+    const ki = document.createElement('input'); ki.className = 'jt-add-k'; ki.placeholder = 'new key';
+    add.append(ki, mkBtn('+ key', () => { const nk = ki.value.trim(); if (!nk || nk in container) return; container[nk] = ''; rebuildJsonTree(); }));
+  }
+  wrap.appendChild(add);
 }
 function setEdMsg(t, bad) { $('#edMsg').textContent = t; $('#edMsg').className = 'muted' + (bad ? ' bad-text' : ''); }
 $('#edCancel').onclick = () => $('#editorModal').classList.add('hidden');
@@ -428,6 +496,8 @@ $('#edSave').onclick = async () => {
     const lines = edState.lines.slice();
     for (const e of edState.entries) lines[e.lineIndex] = e.key + '=' + (e.el.type === 'checkbox' ? (e.el.checked ? 'true' : 'false') : e.el.value);
     content = lines.join('\n');
+  } else if (edState.mode === 'jsontree') {
+    content = JSON.stringify(edState.json, null, 2);
   } else if (edState.mode === 'json') {
     try { JSON.parse($('#edContent').value); } catch (e) { return setEdMsg('Refusing to save invalid JSON: ' + e.message, true); }
     content = $('#edContent').value;
@@ -542,15 +612,28 @@ function updateBackup(m) {
 
 // ---- minimal safe Markdown renderer ---------------------------------------
 function mdEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+// Mod READMEs mix in raw HTML (<center>, <img>, <a>, badges). Normalize that to markdown/text
+// BEFORE escaping so it renders instead of showing as literal source.
+function mdClean(md) {
+  let s = String(md || '').replace(/\r/g, '');
+  s = s.replace(/<br\s*\/?>/gi, '\n');
+  s = s.replace(/<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*?>/gi, (m, src) => `\n![](${src})\n`);
+  s = s.replace(/<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*?>([\s\S]*?)<\/a>/gi, (m, href, txt) => `[${txt.trim() || href}](${href})`);
+  // drop layout/formatting tags but keep their inner text (markdown bold/italic still works)
+  s = s.replace(/<\/?(?:center|div|span|p|picture|source|summary|details|font|small|sub|sup|kbd|figure|figcaption|table|thead|tbody|tfoot|tr|td|th|h[1-6]|b|i|u|s|strong|em|blockquote|hr|article|section|header|footer|nav|main|aside|button|abbr|mark)\b[^>]*>/gi, '');
+  return s;
+}
 function mdInline(s) {
   s = s.replace(/`([^`]+)`/g, (m, c) => `<code>${c}</code>`);
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => `<a href="${/^https?:\/\//i.test(u) ? u : '#'}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+  // images first so the leading "!" is consumed (and linked-image badges work: [![alt](img)](link))
+  s = s.replace(/!\[([^\]]*)\]\(\s*(https?:\/\/[^)\s]+)(?:\s+[^)]*)?\)/gi, (m, alt, u) => `<img class="md-img" src="${u}" alt="${alt}" loading="lazy">`);
+  s = s.replace(/\[([^\]]+)\]\(\s*([^)\s]+)(?:\s+[^)]*)?\)/g, (m, t, u) => `<a href="${/^https?:\/\//i.test(u) ? u : '#'}" target="_blank" rel="noopener noreferrer">${t}</a>`);
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>');
   return s;
 }
 function mdToHtml(md) {
-  const lines = mdEsc(md || '').replace(/\r/g, '').split('\n');
+  const lines = mdEsc(mdClean(md)).split('\n');
   let html = '', inList = false, inCode = false;
   const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
   const hTag = (n) => (n <= 1 ? 'h3' : n === 2 ? 'h4' : 'h5');
@@ -1067,21 +1150,32 @@ function loadPlayers() {
   $('#playersBanner').classList.toggle('hidden', !running);
   if (running) $('#playersBanner').textContent = 'The server is running — whitelist/bans below apply live, but the inventory & stats editor is disabled (stop the server to edit player data).';
   loadAccess();
-  api('GET', `/api/servers/${state.selected}/players`).then(({ players }) => { playersAll = players; renderPlayerList(); }).catch((e) => toast(e.message, true));
+  api('GET', `/api/servers/${state.selected}/players`).then(({ players }) => { playersAll = players; renderPlayerList(); if (accessState) renderAccess(accessState); }).catch((e) => toast(e.message, true));
+  api('GET', `/api/servers/${state.selected}/player-ips`).then(({ byName }) => { playerIpMap = byName || {}; renderPlayerList(); }).catch(() => {});
 }
 // --- access control (whitelist / bans) ---
 function loadAccess() {
   if (!state.selected) return;
   api('GET', `/api/servers/${state.selected}/access`).then(renderAccess).catch(() => {});
 }
+let accessState = null;
 function renderAccess(l) {
+  accessState = l;
   const entry = (label, attrs, reason) => `<div class="access-entry"><span class="ae-name">${esc(label)}</span>${reason ? `<span class="ae-reason">${esc(reason)}</span>` : ''}<button class="btn btn-bad" ${attrs} title="remove">${icon('x', 'ic-sm')}</button></div>`;
   const wl = l.whitelist.length ? l.whitelist.map((e) => entry(e.name || e.uuid, `data-act="whitelist_remove" data-name="${esc(e.name || '')}"`)).join('') : '<div class="access-empty">empty</div>';
   const bans = l.banned.length ? l.banned.map((e) => entry(e.name || e.uuid, `data-act="pardon" data-name="${esc(e.name || '')}"`, e.reason)).join('') : '<div class="access-empty">none</div>';
   const ips = l.bannedIps.length ? l.bannedIps.map((e) => entry(e.ip, `data-act="pardon_ip" data-ip="${esc(e.ip)}"`, e.reason)).join('') : '<div class="access-empty">none</div>';
+  // Quick-add: past players (resolved names) who aren't already whitelisted.
+  const wlNames = new Set(l.whitelist.map((e) => (e.name || '').toLowerCase()).filter(Boolean));
+  const candidates = (playersAll || []).filter((p) => p.name && !wlNames.has(p.name.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const quickAdd = candidates.length
+    ? `<div class="access-add"><select class="acc-sel" title="past players">${candidates.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}</select><button class="btn btn-accent" data-act="whitelist_add_sel" title="add selected player to whitelist">${icon('plus')} Add</button></div>`
+    : '';
   $('#accessPanel').innerHTML = `
     <div class="access-card"><h4>Whitelist <span class="toggle-pill ${l.whitelistEnabled ? 'on' : 'off'}" data-act="${l.whitelistEnabled ? 'whitelist_off' : 'whitelist_on'}">${l.whitelistEnabled ? 'enabled' : 'disabled'}</span></h4>
-      <div class="access-add"><input class="acc-in" placeholder="player name" /><button class="btn btn-accent" data-act="whitelist_add">${icon('plus')}</button></div>
+      ${quickAdd}
+      <div class="access-add"><input class="acc-in" placeholder="or type a player name" /><button class="btn btn-accent" data-act="whitelist_add">${icon('plus')}</button></div>
       <div class="access-entries">${wl}</div></div>
     <div class="access-card"><h4>Banned players</h4>
       <div class="access-add"><input class="acc-in" placeholder="player name" /><button class="btn btn-bad" data-act="ban">Ban</button></div>
@@ -1102,7 +1196,10 @@ function accessAdd(btn) {
 $('#accessPanel').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-act]'); if (!btn) return;
   const act = btn.dataset.act;
-  if (btn.dataset.name !== undefined) accessAction(act, { name: btn.dataset.name });
+  if (act === 'whitelist_add_sel') {
+    const sel = btn.closest('.access-add').querySelector('.acc-sel');
+    if (sel && sel.value) accessAction('whitelist_add', { name: sel.value });
+  } else if (btn.dataset.name !== undefined) accessAction(act, { name: btn.dataset.name });
   else if (btn.dataset.ip !== undefined) accessAction(act, { ip: btn.dataset.ip });
   else if (act === 'whitelist_on' || act === 'whitelist_off') accessAction(act, {});
   else accessAdd(btn);
@@ -1111,34 +1208,108 @@ $('#accessPanel').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || !e.target.classList.contains('acc-in')) return;
   const btn = e.target.closest('.access-add').querySelector('[data-act]'); if (btn) accessAdd(btn);
 });
+let playerIpMap = {}; // lowerName -> { name, ips: [{ip, count}] }
+let playerSort = 'name';
+function ipsFor(p) { const r = playerIpMap[(p.name || '').toLowerCase()]; return r ? r.ips : []; }
+function playerItem(p) {
+  const b = document.createElement('button');
+  b.className = 'player-item' + (pState && pState.uuid === p.uuid ? ' active' : '');
+  const ips = ipsFor(p);
+  const ipLine = ips.length ? `<div class="pi-ips" title="IPs this player has logged in from">${ips.map((x) => esc(x.ip)).join(' · ')}</div>` : '';
+  b.innerHTML = `<div class="pi-name">${esc(p.name || '(unknown)')}</div><div class="uuid">${esc(p.uuid)}</div>${ipLine}`;
+  b.onclick = () => selectPlayer(p.uuid);
+  return b;
+}
 function renderPlayerList() {
   const q = ($('#playerSearch').value || '').toLowerCase();
   const list = $('#playersList'); list.innerHTML = '';
+  const match = (p) => !q || (p.name || '').toLowerCase().includes(q) || p.uuid.includes(q);
+  if (playerSort === 'ip') return renderPlayerListByIp(q, match, list);
+  for (const p of playersAll) { if (match(p)) list.appendChild(playerItem(p)); }
+  if (!list.childElementCount) list.innerHTML = '<div class="muted" style="padding:8px">No players found.</div>';
+}
+function renderPlayerListByIp(q, match, list) {
+  const groups = {}; const noIp = [];
   for (const p of playersAll) {
-    if (q && !((p.name || '').toLowerCase().includes(q) || p.uuid.includes(q))) continue;
-    const b = document.createElement('button');
-    b.className = 'player-item' + (pState && pState.uuid === p.uuid ? ' active' : '');
-    b.innerHTML = `<div>${esc(p.name || '(unknown)')}</div><div class="uuid">${esc(p.uuid)}</div>`;
-    b.onclick = () => selectPlayer(p.uuid);
-    list.appendChild(b);
+    if (!match(p)) continue;
+    const ips = ipsFor(p);
+    if (!ips.length) { noIp.push(p); continue; }
+    for (const { ip } of ips) (groups[ip] = groups[ip] || []).push(p);
+  }
+  // Most-shared IPs first — shared addresses (likely alts) surface at the top.
+  const entries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  for (const [ip, ps] of entries) {
+    const head = document.createElement('div');
+    head.className = 'ip-group-head' + (ps.length > 1 ? ' shared' : '');
+    head.innerHTML = `<span class="ip-addr">${esc(ip)}</span><span class="ip-count">${ps.length} account${ps.length > 1 ? 's' : ''}</span>`;
+    list.appendChild(head);
+    ps.forEach((p) => list.appendChild(playerItem(p)));
+  }
+  if (noIp.length) {
+    const head = document.createElement('div'); head.className = 'ip-group-head';
+    head.innerHTML = `<span class="ip-addr muted">no logged IP</span><span class="ip-count">${noIp.length}</span>`;
+    list.appendChild(head);
+    noIp.forEach((p) => list.appendChild(playerItem(p)));
   }
   if (!list.childElementCount) list.innerHTML = '<div class="muted" style="padding:8px">No players found.</div>';
 }
 $('#playerSearch').addEventListener('input', renderPlayerList);
+$('#playerSort').addEventListener('change', (e) => { playerSort = e.target.value; renderPlayerList(); });
 async function selectPlayer(uuid) {
   try {
     const d = await api('GET', `/api/servers/${state.selected}/players/${uuid}`);
     pState = { uuid: d.uuid, name: d.name, health: d.health, foodLevel: d.foodLevel, xpLevel: d.xpLevel, gamemode: d.gamemode, dimension: d.dimension, pos: d.pos.slice(), inv: {}, ender: {} };
-    d.inventory.forEach((it) => { pState.inv[it.slot] = { id: it.id, count: it.count }; });
-    d.enderItems.forEach((it) => { pState.ender[it.slot] = { id: it.id, count: it.count }; });
+    d.inventory.forEach((it) => { pState.inv[it.slot] = { id: it.id, count: it.count, contents: it.contents }; });
+    d.enderItems.forEach((it) => { pState.ender[it.slot] = { id: it.id, count: it.count, contents: it.contents }; });
     renderEditor(); renderPlayerList();
   } catch (e) { toast(e.message, true); }
+}
+// Item icons: primary source is minecraftitems.xyz, which renders proper icons for items AND
+// 3D blocks AND block-entities (chests, skulls, etc.). Fall back through the raw Minecraft asset
+// textures (item → block → block face) for anything it doesn't cover, then to the item-id text.
+const ICON_API = 'https://api.minecraftitems.xyz/api/item';
+const TEX_BASE = 'https://assets.mcasset.cloud/1.21.4/assets/minecraft/textures';
+function texName(id) { return id.replace(/^minecraft:/, '').replace(/[^a-z0-9_]/gi, ''); }
+function iconUrls(id) {
+  const n = texName(id);
+  if (!n) return [];
+  return [
+    `${ICON_API}/${n}/size=4`,
+    `${TEX_BASE}/item/${n}.png`,
+    `${TEX_BASE}/block/${n}.png`,
+    `${TEX_BASE}/block/${n}_front.png`,
+    `${TEX_BASE}/block/${n}_top.png`,
+  ];
 }
 function slotCell(kind, slot, map) {
   const it = map[slot];
   const filled = it && it.id;
-  const short = filled ? it.id.replace(/^minecraft:/, '') : '';
-  return `<div class="slot ${filled ? 'filled' : ''}${slot < 0 || slot >= 100 ? ' special' : ''}" data-kind="${kind}" data-slot="${slot}" title="${filled ? esc(it.id + ' ×' + it.count) : 'slot ' + slot + ' — empty'}">${filled ? `<span class="slot-id">${esc(short)}</span><span class="slot-count">${it.count > 1 ? it.count : ''}</span>` : ''}</div>`;
+  const special = slot < 0 || slot >= 100;
+  if (!filled) return `<div class="slot${special ? ' special' : ''}" data-kind="${kind}" data-slot="${slot}" title="slot ${slot} — empty"></div>`;
+  const short = it.id.replace(/^minecraft:/, '');
+  const urls = iconUrls(it.id);
+  const img = urls.length ? `<img class="slot-img" src="${urls[0]}" data-fallbacks="${esc(urls.slice(1).join('|'))}" alt="">` : '';
+  const hasContents = Array.isArray(it.contents);
+  const badge = hasContents ? `<span class="slot-box" title="contains items — click to view">${icon('package', 'ic-sm')}</span>` : '';
+  return `<div class="slot filled${special ? ' special' : ''}${hasContents ? ' has-contents' : ''}" data-kind="${kind}" data-slot="${slot}" title="${esc(it.id + ' ×' + it.count + (hasContents ? ' — click to view contents' : ''))}">${img}<span class="slot-id"${img ? ' style="display:none"' : ''}>${esc(short)}</span><span class="slot-count">${it.count > 1 ? it.count : ''}</span>${badge}</div>`;
+}
+// Walk the fallback chain on load error; raw textures get pixelated upscaling, the rendered API
+// images stay smooth. When the chain is exhausted, drop the img and show the item-id text.
+function wireSlotImages(root) {
+  root.querySelectorAll('img.slot-img').forEach((img) => {
+    img.addEventListener('error', () => {
+      const fbs = (img.dataset.fallbacks || '').split('|').filter(Boolean);
+      if (fbs.length) {
+        img.dataset.fallbacks = fbs.slice(1).join('|');
+        img.style.imageRendering = fbs[0].includes('assets.mcasset') ? 'pixelated' : 'auto';
+        img.src = fbs[0];
+        return;
+      }
+      const lbl = img.parentElement && img.parentElement.querySelector('.slot-id');
+      if (lbl) lbl.style.display = '';
+      img.remove();
+    });
+  });
 }
 function renderEditor() {
   if (!pState) return;
@@ -1167,23 +1338,40 @@ function renderEditor() {
       <div class="inv-grid">${range(0, 26).map((s) => slotCell('ender', s, p.ender)).join('')}</div></div>
     <button id="peSave" class="btn btn-accent">${icon('check')} Save player</button>
     <span id="peSaveMsg" class="muted" style="margin-left:8px"></span>`;
+  wireSlotImages($('#playerEdit'));
 }
 $('#playerEdit').addEventListener('click', (e) => {
   const slotEl = e.target.closest('.slot');
   if (slotEl) return openSlotEditor(slotEl.dataset.kind, parseInt(slotEl.dataset.slot, 10));
   if (e.target.closest('#peSave')) savePlayer();
 });
+// Read-only 27-slot grid of a container's contents (shulker boxes, etc.), using the item view.
+function shulkerGrid(contents) {
+  const map = {}; (contents || []).forEach((c) => { map[c.slot] = { id: c.id, count: c.count }; });
+  return `<div class="inv-grid">${range(0, 26).map((s) => slotCell('view', s, map)).join('')}</div>`;
+}
 function openSlotEditor(kind, slot) {
   slotCtx = { kind, slot };
   const it = pState[kind][slot] || {};
   $('#slotTitle').textContent = `${kind === 'ender' ? 'Ender' : 'Inventory'} slot ${slot}`;
   $('#slotId').value = it.id || ''; $('#slotCount').value = it.count || 1;
+  const sc = $('#slotContents');
+  if (Array.isArray(it.contents)) {
+    const n = it.contents.length;
+    sc.classList.remove('hidden');
+    sc.innerHTML = `<div class="slot-contents-head">${icon('package', 'ic-sm')} Contents · ${n} item${n === 1 ? '' : 's'} <span class="muted">(read-only)</span></div>${shulkerGrid(it.contents)}`;
+    wireSlotImages(sc);
+  } else { sc.classList.add('hidden'); sc.innerHTML = ''; }
   $('#slotModal').classList.remove('hidden'); setTimeout(() => $('#slotId').focus(), 50);
 }
 $('#slotCancel').onclick = () => $('#slotModal').classList.add('hidden');
 $('#slotSet').onclick = () => {
   const id = $('#slotId').value.trim(), c = Math.max(1, parseInt($('#slotCount').value, 10) || 1);
-  if (id) pState[slotCtx.kind][slotCtx.slot] = { id, count: c }; else delete pState[slotCtx.kind][slotCtx.slot];
+  const prev = pState[slotCtx.kind][slotCtx.slot];
+  if (id) {
+    const keep = prev && prev.id === id ? prev.contents : undefined; // keep container contents if item unchanged
+    pState[slotCtx.kind][slotCtx.slot] = { id, count: c, ...(keep ? { contents: keep } : {}) };
+  } else delete pState[slotCtx.kind][slotCtx.slot];
   $('#slotModal').classList.add('hidden'); renderEditor();
 };
 $('#slotClear').onclick = () => { delete pState[slotCtx.kind][slotCtx.slot]; $('#slotModal').classList.add('hidden'); renderEditor(); };
@@ -1208,17 +1396,27 @@ async function savePlayer() {
 const aiState = { contents: [], model: '', pending: 0, responses: [], busy: false };
 $('#aiLauncher').onclick = () => toggleAi(true);
 $('#aiClose').onclick = () => toggleAi(false);
+const AI_GREETING = "Hi! I can read your servers/host, change a server's config, send console commands, and run host terminal commands — but I'll always ask you to approve each action first. What do you need?";
+// Reflect the currently-selected server as a header pill (the conversation is one continuous
+// thread; the focus just shows which server's live state the copilot is looking at).
+function updateAiFocus() {
+  const el = $('#aiFocus'); if (!el) return;
+  el.textContent = state.selected || '';
+  el.classList.toggle('hidden', !state.selected);
+}
+// Greet exactly once per session: the greeting isn't part of the chat history, so gate on the
+// thread being empty (not on aiState.contents) — re-opening the drawer or switching servers
+// must never re-add it.
+function greetCopilot() { if (!$('#aiThread').childElementCount) renderAiMsg('assistant', AI_GREETING); }
 function toggleAi(open) {
   $('#aiDrawer').classList.toggle('hidden', !open);
-  if (open) {
-    $('#aiFocus').textContent = state.selected || '(none)';
-    setTimeout(() => $('#aiInput').focus(), 50);
-    if (!aiState.contents.length) renderAiMsg('assistant', "Hi! I can read your servers/host, change a server's config, send console commands, and run host terminal commands — but I'll always ask you to approve each action first. What do you need?");
-  }
+  if (open) { updateAiFocus(); greetCopilot(); setTimeout(() => $('#aiInput').focus(), 50); }
 }
 $('#aiForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  const t = $('#aiInput').value.trim(); if (!t || aiState.busy) return;
+  const t = $('#aiInput').value.trim();
+  if (!t || aiState.busy) return;
+  if (aiState.pending > 0) { toast('Approve or reject the pending action first.', true); return; }
   $('#aiInput').value = ''; $('#aiInput').style.height = 'auto';
   renderAiMsg('user', t); aiTurn(t);
 });
@@ -1227,7 +1425,10 @@ $('#aiInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.s
 
 function aiScroll() { const t = $('#aiThread'); t.scrollTop = t.scrollHeight; }
 function renderAiMsg(role, text) {
-  const d = document.createElement('div'); d.className = 'ai-msg ' + role; d.textContent = text;
+  const d = document.createElement('div'); d.className = 'ai-msg ' + role;
+  // User text stays literal; assistant/error replies render as markdown.
+  if (role === 'user') d.textContent = text;
+  else { d.classList.add('md'); d.innerHTML = mdToHtml(text); }
   $('#aiThread').appendChild(d); aiScroll(); return d;
 }
 function setTyping(on) {
@@ -1236,14 +1437,14 @@ function setTyping(on) {
   else if (!on && t) t.remove();
 }
 async function aiTurn(userText) {
-  if (userText) aiState.contents.push({ role: 'user', parts: [{ text: userText }] });
+  if (userText) aiState.contents.push({ role: 'user', content: userText });
   aiState.busy = true; setTyping(true);
   try {
     const r = await api('POST', '/api/ai/chat', { contents: aiState.contents, serverId: state.selected });
-    aiState.contents.push({ role: 'model', parts: r.modelParts });
+    aiState.contents.push(r.message); // assistant message (with any tool_calls), echoed back next turn
     if (r.text) renderAiMsg('assistant', r.text);
-    const calls = r.functionCalls || [];
-    if (calls.length) { aiState.pending = calls.length; aiState.responses = []; calls.forEach(renderActionCard); }
+    const calls = r.toolCalls || [];
+    if (calls.length) { aiState.pending = calls.length; calls.forEach(renderActionCard); }
     else if (!r.text) renderAiMsg('assistant', '(no response — try rephrasing)');
   } catch (e) { renderAiMsg('error', e.message); }
   finally { aiState.busy = false; setTyping(false); }
@@ -1286,27 +1487,24 @@ function renderActionCard(fc) {
       const summary = r.output || r.recentConsole || (r.file ? `installed ${r.file} → ${r.dir}/` : '')
         || (r.action ? `${r.action} done (running=${r.running})` : '') || (r.startedBackup ? `backup started: ${r.startedBackup}` : '') || r.note || 'done';
       result.textContent = summary;
-      resolveAction(fc.name, r);
+      resolveAction(fc, r);
     } catch (e) {
       result.className = 'ai-result bad'; result.textContent = e.message;
-      resolveAction(fc.name, { ok: false, error: e.message });
+      resolveAction(fc, { ok: false, error: e.message });
     }
     refreshServers();
   };
   reject.onclick = () => {
     approve.disabled = reject.disabled = true; result.className = 'ai-result bad'; result.textContent = 'rejected';
-    resolveAction(fc.name, { rejected: true, note: 'user rejected this action' });
+    resolveAction(fc, { rejected: true, note: 'user rejected this action' });
   };
   $('#aiThread').appendChild(card); aiScroll();
 }
-function resolveAction(name, response) {
-  aiState.responses.push({ functionResponse: { name, response } });
+function resolveAction(fc, response) {
+  // Each tool_call needs a matching tool message (by id) before the next assistant turn.
+  aiState.contents.push({ role: 'tool', tool_call_id: fc.id, content: JSON.stringify(response) });
   aiState.pending -= 1;
-  if (aiState.pending <= 0) {
-    aiState.contents.push({ role: 'user', parts: aiState.responses });
-    aiState.responses = [];
-    aiTurn(); // agent reacts to results / proposes next steps (still approval-gated)
-  }
+  if (aiState.pending <= 0) aiTurn(); // agent reacts to results / proposes next steps (still approval-gated)
 }
 
 // ---- boot ------------------------------------------------------------------

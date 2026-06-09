@@ -1,11 +1,11 @@
 'use strict';
-// AI agent (Google Gemini, free tier) with human-in-the-loop tool use.
+// AI agent (DeepSeek, OpenAI-compatible chat API) with human-in-the-loop tool use.
 //
-// SAFETY MODEL: chat() only ever PROPOSES actions (Gemini functionCalls); it never
-// executes anything. execute() performs an action and is reachable ONLY via the
-// /api/ai/execute route, which the frontend calls AFTER the user clicks Approve.
-// So every config change / console command / terminal command is gated on explicit
-// user verification — there is no code path where the model self-executes.
+// SAFETY MODEL: chat() only ever PROPOSES actions (tool_calls); it never executes
+// anything. execute() performs an action and is reachable ONLY via the /api/ai/execute
+// route, which the frontend calls AFTER the user clicks Approve. So every config change /
+// console command / terminal command is gated on explicit user verification — there is no
+// code path where the model self-executes.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -14,22 +14,21 @@ const mc = require('./mc');
 const backup = require('./backup');
 const fabric = require('./fabric');
 
-const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
+const DEEPSEEK = 'https://api.deepseek.com/chat/completions';
 const SECRETS = path.join(__dirname, 'secrets.json');
 
 function loadSecrets() {
   let s = {};
   try { s = JSON.parse(fs.readFileSync(SECRETS, 'utf8')); } catch {}
   return {
-    apiKey: process.env.GEMINI_API_KEY || s.geminiApiKey || '',
-    model: process.env.GEMINI_MODEL || s.geminiModel || 'gemini-2.5-flash',
+    apiKey: process.env.DEEPSEEK_API_KEY || s.deepseekApiKey || '',
+    model: process.env.DEEPSEEK_MODEL || s.deepseekModel || 'deepseek-v4-flash',
   };
 }
 function isConfigured() { return !!loadSecrets().apiKey; }
 
 // Tools the agent may PROPOSE. Each maps to an approval-gated action in execute().
-const TOOLS = [{
-  functionDeclarations: [
+const FUNCTIONS = [
     {
       name: 'set_server_config',
       description: 'Change a server\'s configuration (applies on its next start/restart). Only include the fields you want to change.',
@@ -101,8 +100,9 @@ const TOOLS = [{
         required: ['serverId', 'slug'],
       },
     },
-  ],
-}];
+];
+// OpenAI-style tool schema (DeepSeek is OpenAI-compatible).
+const OPENAI_TOOLS = FUNCTIONS.map((f) => ({ type: 'function', function: { name: f.name, description: f.description, parameters: f.parameters } }));
 
 const SYSTEM_BASE = `You are "Copilot", the expert in-panel operations assistant for **shaurycontroller**, a web panel that manages Minecraft servers (both **Fabric** and **Paper**). Act like a senior Minecraft server administrator pair-working with the user: proactive, precise, and safety-conscious. Diagnose root causes, propose concrete minimal fixes, and explain your reasoning briefly.
 
@@ -154,29 +154,44 @@ function buildContext(serverId) {
 
 async function chat({ contents, serverId }) {
   const { apiKey, model } = loadSecrets();
-  if (!apiKey) throw Object.assign(new Error('AI not configured (no Gemini API key)'), { status: 503 });
+  if (!apiKey) throw Object.assign(new Error('AI not configured (no DeepSeek API key)'), { status: 503 });
   if (!Array.isArray(contents)) throw Object.assign(new Error('contents[] required'), { status: 400 });
-  const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_BASE + '\n\n## Live state\n' + buildContext(serverId) }] },
-    tools: TOOLS,
-    contents,
-    generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
-  };
-  const res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (data.error) {
-    if (data.error.code === 429) throw Object.assign(new Error('Gemini free-tier rate limit reached (20 requests/min) — wait ~30s and try again.'), { status: 429 });
-    throw new Error('Gemini: ' + (data.error.message || res.status));
+  // OpenAI/DeepSeek message format: system prompt + live state is prepended fresh each turn
+  // (it isn't stored in the client's history), then the running conversation.
+  const messages = [
+    { role: 'system', content: SYSTEM_BASE + '\n\n## Live state\n' + buildContext(serverId) },
+    ...contents,
+  ];
+  let res, data;
+  try {
+    res = await fetch(DEEPSEEK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({ model, messages, tools: OPENAI_TOOLS, tool_choice: 'auto', temperature: 0.4, max_tokens: 4096 }),
+    });
+    data = await res.json();
+  } catch (e) {
+    throw Object.assign(new Error('DeepSeek request failed: ' + e.message), { status: 502 });
   }
-  const cand = data.candidates && data.candidates[0];
-  const parts = (cand && cand.content && cand.content.parts) || [];
+  if (!res.ok || data.error) {
+    const msg = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
+    if (res.status === 429) throw Object.assign(new Error('DeepSeek rate limit reached — wait a moment and try again.'), { status: 429 });
+    if (res.status === 401) throw Object.assign(new Error('DeepSeek rejected the API key (401) — check panel/secrets.json.'), { status: 502 });
+    if (res.status === 402) throw Object.assign(new Error('DeepSeek account has insufficient balance (402).'), { status: 502 });
+    throw new Error('DeepSeek: ' + msg);
+  }
+  const choice = data.choices && data.choices[0];
+  const message = (choice && choice.message) || { role: 'assistant', content: '' };
+  const toolCalls = (message.tool_calls || []).map((tc) => {
+    let args = {};
+    try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch {}
+    return { id: tc.id, name: tc.function && tc.function.name, args };
+  });
   return {
-    modelParts: parts, // echoed back verbatim (preserves thoughtSignature) on the next turn
-    text: parts.filter((p) => p.text).map((p) => p.text).join(''),
-    functionCalls: parts.filter((p) => p.functionCall).map((p) => p.functionCall),
-    finishReason: cand && cand.finishReason,
+    message,               // echoed back verbatim into the conversation on the next turn
+    text: message.content || '',
+    toolCalls,
+    finishReason: choice && choice.finish_reason,
   };
 }
 

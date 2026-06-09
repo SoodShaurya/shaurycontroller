@@ -101,6 +101,48 @@ async function listPlayers(id) {
   return { players };
 }
 
+// Parse server logs for login lines ("Name[/IP:PORT] logged in ...") to learn which IPs each
+// player has connected from. Used for the per-player IP list and the sort-by-IP / alt view.
+// Result is cached briefly (logs only change when a server is running). Names are matched
+// case-insensitively to the player list.
+const LOGIN_RE = /\b([A-Za-z0-9_]{1,16})\[\/(.+):\d+\] logged in\b/g;
+const ipCache = new Map(); // id -> { at, data }
+async function playerIps(id) {
+  const cached = ipCache.get(id);
+  if (cached && Date.now() - cached.at < 30000) return cached.data;
+  const dir = path.join(cfg.serverDir(id), 'logs');
+  let files = [];
+  try { files = await fsp.readdir(dir); } catch { const d = { byName: {} }; ipCache.set(id, { at: Date.now(), data: d }); return d; }
+  const logs = files.filter((f) => f === 'latest.log' || f.endsWith('.log.gz'));
+  const byName = {}; // lowerName -> { name, ips: { ip: count } }
+  for (const f of logs) {
+    let text;
+    try {
+      const buf = await fsp.readFile(path.join(dir, f));
+      text = f.endsWith('.gz') ? zlib.gunzipSync(buf).toString('utf8') : buf.toString('utf8');
+    } catch { continue; }
+    LOGIN_RE.lastIndex = 0;
+    let m;
+    while ((m = LOGIN_RE.exec(text))) {
+      const name = m[1];
+      const ip = m[2].trim().replace(/^\[|\]$/g, ''); // strip IPv6 brackets if present
+      if (!ip) continue;
+      const key = name.toLowerCase();
+      const rec = byName[key] || (byName[key] = { name, ips: {} });
+      rec.ips[ip] = (rec.ips[ip] || 0) + 1;
+    }
+  }
+  const out = { byName: {} };
+  for (const [k, rec] of Object.entries(byName)) {
+    out.byName[k] = {
+      name: rec.name,
+      ips: Object.entries(rec.ips).map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count),
+    };
+  }
+  ipCache.set(id, { at: Date.now(), data: out });
+  return out;
+}
+
 // --- tagged-NBT helpers ---
 const T = {
   byte: (v) => ({ type: 'byte', value: v | 0 }),
@@ -109,15 +151,42 @@ const T = {
   double: (v) => ({ type: 'double', value: Number(v) }),
   string: (v) => ({ type: 'string', value: String(v) }),
 };
+// Contents of a container item (shulker box, etc.). Supports the 1.20.5+ component format
+// (components["minecraft:container"] = [{slot, item:{id,count}}]) and the legacy
+// tag.BlockEntityTag.Items format. Returns null if the item isn't a container.
+function containerContents(it) {
+  const comp = it.components && it.components.value && it.components.value['minecraft:container'];
+  if (comp && comp.value && Array.isArray(comp.value.value)) {
+    return comp.value.value.map((e) => {
+      const item = (e.item && e.item.value) || {};
+      return {
+        slot: e.slot ? e.slot.value : 0,
+        id: item.id ? item.id.value : 'minecraft:air',
+        count: item.count ? item.count.value : 1,
+      };
+    });
+  }
+  const bet = it.tag && it.tag.value && it.tag.value.BlockEntityTag && it.tag.value.BlockEntityTag.value;
+  if (bet && bet.Items && bet.Items.value && Array.isArray(bet.Items.value.value)) {
+    return bet.Items.value.value.map((e) => ({
+      slot: e.Slot ? e.Slot.value : 0,
+      id: e.id ? e.id.value : 'minecraft:air',
+      count: e.Count ? e.Count.value : 1,
+    }));
+  }
+  return null;
+}
 function itemsFromList(listTag) {
   const out = [];
   const arr = listTag && listTag.value && Array.isArray(listTag.value.value) ? listTag.value.value : [];
   for (const it of arr) {
+    const contents = containerContents(it);
     out.push({
       slot: it.Slot ? it.Slot.value : (it.slot ? it.slot.value : 0),
       id: it.id ? it.id.value : 'minecraft:air',
       count: it.count ? it.count.value : (it.Count ? it.Count.value : 1),
       hasComponents: !!(it.components || it.tag),
+      ...(contents ? { contents } : {}),
     });
   }
   return out;
@@ -190,4 +259,4 @@ async function writePlayer(id, uuid, edits) {
   return { ok: true, backup: path.basename(file) + '.bak' };
 }
 
-module.exports = { listPlayers, readPlayer, writePlayer };
+module.exports = { listPlayers, readPlayer, writePlayer, playerIps };

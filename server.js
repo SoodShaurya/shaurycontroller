@@ -115,6 +115,10 @@ app.get('/api/servers/:id/players', asyncH(async (req, res) => {
   const s = requireServer(req, res); if (!s) return;
   res.json(await playerdata.listPlayers(s.id));
 }));
+app.get('/api/servers/:id/player-ips', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await playerdata.playerIps(s.id));
+}));
 app.get('/api/servers/:id/players/:uuid', asyncH(async (req, res) => {
   const s = requireServer(req, res); if (!s) return;
   res.json(await playerdata.readPlayer(s.id, req.params.uuid));

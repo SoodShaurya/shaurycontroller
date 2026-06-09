@@ -3,7 +3,67 @@
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const state = { servers: [], selected: null, ws: null, cwd: '', info: null,
+
+// ---- inline SVG icon set (Feather-style; stroke inherits text color) -------
+const ICON_PATHS = {
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  refresh: '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  file: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>',
+  sparkle: '<path d="M12 3l1.9 5.6L19.5 10.5 13.9 12.4 12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+  archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  package: '<path d="M16.5 9.4 7.5 4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  cpu: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+  ram: '<rect x="2" y="7" width="20" height="10" rx="1"/><line x1="6" y1="11" x2="6" y2="13"/><line x1="10" y1="11" x2="10" y2="13"/><line x1="14" y1="11" x2="14" y2="13"/><line x1="18" y1="11" x2="18" y2="13"/>',
+  disk: '<path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>',
+};
+function icon(name, cls) {
+  return `<svg class="ic${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
+}
+function iconBtn(name, onclick, { cls = '', title = '', label = '' } = {}) {
+  const b = document.createElement('button');
+  b.className = 'btn ' + cls;
+  b.innerHTML = icon(name) + (label ? ' ' + esc(label) : '');
+  if (title) b.title = title;
+  b.onclick = onclick;
+  return b;
+}
+const worldDropHTML = () => `${icon('upload')} Drag &amp; drop a <b>world .zip</b> here, or click to browse`;
+function iconifyStatic() {
+  const set = (sel, name, label) => { const el = $(sel); if (el) el.innerHTML = icon(name) + (label ? ' ' + label : ''); };
+  set('#newServerBtn', 'plus', 'New server');
+  set('#btnUpload', 'upload', 'Upload');
+  set('#btnNewFolder', 'folder', 'New folder');
+  set('#btnRefreshFiles', 'refresh', 'Refresh');
+  set('#cfgRefresh', 'refresh', 'Refresh');
+  set('#btnBackup', 'archive', 'Create backup');
+  set('#btnDetectJars', 'refresh', 'Detect');
+  set('#btnDownloadJar', 'download', 'Download server jar');
+  set('#btnFabricApi', 'package', 'Install / update Fabric API');
+  set('#btnPruneJars', 'scissors', 'Prune unused jars');
+  set('#btnDoDownloadJar', 'download', 'Download & select');
+  set('#btnAddFlag', 'plus', '');
+  set('#aiClose', 'x', '');
+  set('#updateAllBtn', 'refresh', 'Update all outdated');
+  const launcher = $('#aiLauncher'); if (launcher) launcher.innerHTML = icon('sparkle', 'ic-lg');
+  const title = $('.ai-title'); if (title) title.innerHTML = icon('sparkle') + ' Copilot <span id="aiModel" class="ai-model"></span>';
+  const searchBtn = $('#modSearchForm button[type=submit]'); if (searchBtn) searchBtn.innerHTML = icon('search') + ' Search';
+  const drop = $('#nsWorldDrop'); if (drop) drop.innerHTML = worldDropHTML();
+  set('#mCpuLabel', 'cpu', 'CPU'); set('#mRamLabel', 'ram', 'Memory'); set('#mDiskLabel', 'disk', 'Storage');
+}
+const state = { servers: [], selected: null, ws: null, cwd: '', info: null, net: null,
   metrics: { srvCpu: [], srvRam: [], hostCpu: [], hostRam: [] } };
 
 // ---- helpers ---------------------------------------------------------------
@@ -52,13 +112,52 @@ function confirmDialog({ title, body, danger, prompt, value }) {
 
 // ---- server list -----------------------------------------------------------
 async function refreshServers() {
-  const { servers } = await api('GET', '/api/servers');
+  const { servers, host } = await api('GET', '/api/servers');
   state.servers = servers;
   renderServerList();
+  renderHostMetrics(host);
   if (state.selected) {
     const s = servers.find((x) => x.id === state.selected);
     if (s) updateStatus(s.status);
   }
+}
+function renderNetwork(net) {
+  if (net) state.net = net;
+  const n = state.net; if (!n) return;
+  const row = (label, ip) => `<div class="net-row"><span class="net-l">${label}</span>${ip ? `<span class="net-ip" data-ip="${esc(ip)}" title="click to copy">${esc(ip)}</span>` : '<span class="muted">—</span>'}</div>`;
+  $('#hostNet').innerHTML = row('Tailscale', n.tailscaleIp) + row('Public', n.publicIp);
+}
+// Clipboard works only in secure contexts; this panel is plain HTTP over Tailscale,
+// so fall back to a hidden-textarea execCommand copy.
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+  }
+  return fallbackCopy(text);
+}
+$('#hostNet').addEventListener('click', async (e) => {
+  const el = e.target.closest('.net-ip'); if (!el) return;
+  const ok = await copyText(el.dataset.ip);
+  toast(ok ? 'copied ' + el.dataset.ip : 'select & copy: ' + el.dataset.ip, !ok);
+});
+function renderHostMetrics(host) {
+  if (!host) return;
+  const gb = (b) => (b / 1073741824).toFixed(1);
+  $('#hostMetrics').innerHTML =
+    miniRow('CPU', host.cpuPct, host.cpuPct + '%', 'c-cpu') +
+    miniRow('RAM', host.memPct, `${gb(host.memUsedBytes)}/${gb(host.memTotalBytes)} GB`, 'c-ram') +
+    miniRow('DISK', host.diskPct, `${gb(host.diskUsedBytes)}/${gb(host.diskTotalBytes)} GB`, 'c-disk');
 }
 function miniRow(label, pct, val, cls) {
   return `<div class="mini-row"><span class="mini-l">${label}</span><span class="mini-bar"><span class="mini-fill ${cls}" style="width:${Math.max(0, Math.min(100, pct))}%"></span></span><span class="mini-v">${esc(val)}</span></div>`;
@@ -78,7 +177,7 @@ function renderServerList() {
     const diskPct = diskB != null ? Math.round((diskB / diskTotal) * 100) : 0;
     const div = document.createElement('div');
     div.className = 'server-item' + (s.id === state.selected ? ' active' : '');
-    const players = on && st.players ? ` · 👥 ${st.players.online}/${st.players.max}` : '';
+    const players = on && st.players ? ` · ${icon('users', 'ic-sm')} ${st.players.online}/${st.players.max}` : '';
     div.innerHTML = `<div class="name"><span class="dot ${on ? 'on' : 'off'}"></span>${esc(s.name)}${s.autoRestart ? ' <span class="ar-badge" title="auto-restart on crash">⟳</span>' : ''}</div>
       <div class="sub">MC ${esc(s.mcVersion)} · :${esc(s.port)} · ${on ? 'running' : 'stopped'}${players}</div>
       <div class="mini">
@@ -106,7 +205,8 @@ window.addEventListener('hashchange', route);
 function selectServer(id, tab = 'console') {
   state.selected = id; state.cwd = '';
   state.metrics = { srvCpu: [], srvRam: [], hostCpu: [], hostRam: [] };
-  delete $('#modResults').dataset.loaded; $('#modResults').innerHTML = ''; modState.offset = 0; // reset Modrinth browser for the new server
+  delete $('#modResults').dataset.loaded; $('#modResults').innerHTML = ''; modState.offset = 0; modState.typeFor = null; // reset Modrinth browser for the new server
+  pState = null; playersAll = []; $('#playerEdit').innerHTML = '<div class="muted">Select a player to edit.</div>'; $('#playersList').innerHTML = '';
   $('#empty').classList.add('hidden'); $('#serverView').classList.remove('hidden');
   renderServerList();
   const s = state.servers.find((x) => x.id === id);
@@ -161,6 +261,7 @@ function switchTab(name) {
   if (name === 'backups') loadBackups();
   if (name === 'metrics') drawAllSparks();
   if (name === 'mods') modInit();
+  if (name === 'players') loadPlayers();
 }
 $$('.tab').forEach((t) => (t.onclick = () => { if (state.selected) location.hash = '#/' + state.selected + '/' + t.dataset.tab; }));
 
@@ -196,39 +297,45 @@ $('#cmdInput').addEventListener('keydown', (e) => {
 });
 
 // ---- files -----------------------------------------------------------------
-async function loadFiles(rel) {
+let filesSig = '', filesUploading = false;
+async function loadFiles(rel, opts = {}) {
   if (!state.selected) return;
   try {
     const data = await api('GET', `/api/servers/${state.selected}/files?path=${encodeURIComponent(rel || '')}`);
+    const sig = (data.path || '') + '|' + data.entries.map((e) => `${e.name}:${e.size}:${Math.round(e.mtime)}`).join(',');
+    if (opts.auto && sig === filesSig) return; // nothing changed — don't disrupt the view
+    filesSig = sig;
+    const scroll = $('#tab-files').scrollTop;
     state.cwd = data.path || '';
     renderBreadcrumb(state.cwd);
     const tb = $('#fileRows'); tb.innerHTML = '';
     if (state.cwd) {
       const up = document.createElement('tr');
-      up.innerHTML = `<td><span class="fname dir">📁 ..</span></td><td></td><td></td><td></td>`;
+      up.innerHTML = `<td><span class="fname dir">${icon('folder')} ..</span></td><td></td><td></td><td></td>`;
       up.querySelector('.fname').onclick = () => loadFiles(parentPath(state.cwd));
       tb.appendChild(up);
     }
     for (const e of data.entries) {
       const tr = document.createElement('tr');
       const rel2 = pjoin(state.cwd, e.name);
-      tr.innerHTML = `<td><span class="fname ${e.dir ? 'dir' : ''}">${e.dir ? '📁' : '📄'} ${e.name}</span></td>
+      tr.innerHTML = `<td><span class="fname ${e.dir ? 'dir' : ''}">${e.dir ? icon('folder') : icon('file')} ${esc(e.name)}</span></td>
         <td>${e.dir ? '' : fmtBytes(e.size)}</td><td class="muted">${fmtDate(e.mtime)}</td>
         <td class="row-actions"></td>`;
       const nameEl = tr.querySelector('.fname');
       nameEl.onclick = () => (e.dir ? loadFiles(rel2) : editFile(rel2));
       const act = tr.querySelector('.row-actions');
-      if (!e.dir) act.appendChild(mkBtn('↓', () => window.open(`/api/servers/${state.selected}/download?path=${encodeURIComponent(rel2)}`)));
+      if (!e.dir) act.appendChild(iconBtn('download', () => window.open(`/api/servers/${state.selected}/download?path=${encodeURIComponent(rel2)}`), { title: 'Download' }));
       act.appendChild(mkBtn('rename', () => renameEntry(rel2, e.name)));
-      act.appendChild(mkBtn('🗑', async () => {
+      act.appendChild(iconBtn('trash', async () => {
         if (await confirmDialog({ title: 'Delete', body: `Delete "${e.name}"?`, danger: true })) {
           await api('DELETE', `/api/servers/${state.selected}/file?path=${encodeURIComponent(rel2)}`).catch((er) => toast(er.message, true));
           loadFiles(state.cwd);
         }
-      }, 'btn-bad'));
+      }, { cls: 'btn-bad', title: 'Delete' }));
       tb.appendChild(tr);
     }
-  } catch (e) { toast(e.message, true); }
+    $('#tab-files').scrollTop = scroll;
+  } catch (e) { if (!opts.auto) toast(e.message, true); }
 }
 function mkBtn(label, onclick, cls) { const b = document.createElement('button'); b.className = 'btn ' + (cls || ''); b.textContent = label; b.onclick = onclick; return b; }
 function parentPath(p) { const i = p.replace(/\/+$/, '').lastIndexOf('/'); return i === -1 ? '' : p.slice(0, i); }
@@ -272,7 +379,7 @@ function buildPropsEditor(content) {
   edState.lines = content.split('\n');
   edState.entries = [];
   $('#edContent').classList.add('hidden');
-  $('#edModeBar').textContent = 'visual editor — toggles for booleans, dropdowns for known options';
+  $('#edModeBar').innerHTML = '<span class="ed-chip">properties</span>';
   const form = $('#edForm'); form.classList.remove('hidden'); form.innerHTML = '';
   edState.lines.forEach((line, i) => {
     const m = line.match(/^([^#=\s][^=]*)=(.*)$/);
@@ -308,9 +415,9 @@ function buildJsonEditor(content) {
   const ta = $('#edContent'); ta.classList.remove('hidden');
   let pretty = content; try { pretty = JSON.stringify(JSON.parse(content), null, 2); } catch {}
   ta.value = pretty;
-  $('#edModeBar').innerHTML = '<span>JSON</span>';
+  $('#edModeBar').innerHTML = '<span class="ed-chip">json</span>';
   const fmt = mkBtn('Format', () => { try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); setEdMsg('formatted', false); } catch (e) { setEdMsg('Invalid JSON: ' + e.message, true); } });
-  const val = mkBtn('Validate', () => { try { JSON.parse(ta.value); setEdMsg('✓ valid JSON', false); } catch (e) { setEdMsg('✗ ' + e.message, true); } });
+  const val = mkBtn('Validate', () => { try { JSON.parse(ta.value); setEdMsg('Valid JSON', false); } catch (e) { setEdMsg('Invalid: ' + e.message, true); } });
   $('#edModeBar').append(fmt, val);
 }
 function setEdMsg(t, bad) { $('#edMsg').textContent = t; $('#edMsg').className = 'muted' + (bad ? ' bad-text' : ''); }
@@ -353,15 +460,34 @@ $('#btnNewFolder').onclick = async () => {
   const name = await confirmDialog({ title: 'New folder', prompt: true });
   if (name) { await api('POST', `/api/servers/${state.selected}/mkdir`, { path: pjoin(state.cwd, name) }).catch((e) => toast(e.message, true)); loadFiles(state.cwd); }
 };
+function xhrUpload(url, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => { let d = {}; try { d = JSON.parse(xhr.responseText); } catch {} (xhr.status >= 200 && xhr.status < 300) ? resolve(d) : reject(new Error(d.error || ('HTTP ' + xhr.status))); };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(file);
+  });
+}
 $('#btnUpload').onclick = () => $('#uploadInput').click();
 $('#uploadInput').onchange = async (e) => {
-  for (const f of e.target.files) {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  filesUploading = true;
+  const prog = $('#fileUploadProgress'); prog.classList.add('active');
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    $('#fileUploadLabel').textContent = `Uploading ${f.name} (${i + 1}/${files.length})`;
+    $('#fileUploadFill').style.width = '0%'; $('#fileUploadPct').textContent = '0%';
     try {
-      await api('POST', `/api/servers/${state.selected}/upload?path=${encodeURIComponent(state.cwd)}&name=${encodeURIComponent(f.name)}`, undefined, f);
-      toast('uploaded ' + f.name);
-    } catch (er) { toast(er.message, true); }
+      await xhrUpload(`/api/servers/${state.selected}/upload?path=${encodeURIComponent(state.cwd)}&name=${encodeURIComponent(f.name)}`, f,
+        (pct) => { $('#fileUploadFill').style.width = pct + '%'; $('#fileUploadPct').textContent = pct + '%'; });
+    } catch (er) { toast('upload failed: ' + f.name + ' — ' + er.message, true); }
   }
-  e.target.value = ''; loadFiles(state.cwd);
+  prog.classList.remove('active'); filesUploading = false;
+  toast(files.length > 1 ? `uploaded ${files.length} files` : 'uploaded ' + files[0].name);
+  loadFiles(state.cwd);
 };
 
 // ---- backups ---------------------------------------------------------------
@@ -373,16 +499,16 @@ async function loadBackups() {
     const tb = $('#backupRows'); tb.innerHTML = '';
     for (const b of data.backups) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td class="mono">${b.name}<div class="muted mono" style="font-size:11px">${b.path}</div></td>
+      tr.innerHTML = `<td class="mono">${esc(b.name)}<div class="muted mono" style="font-size:11px">${esc(b.path)}</div></td>
         <td>${fmtBytes(b.size)}</td><td class="muted">${fmtDate(b.mtime)}</td><td class="row-actions"></td>`;
       const act = tr.querySelector('.row-actions');
-      act.appendChild(mkBtn('↓', () => window.open(`/api/servers/${state.selected}/backups/download?name=${encodeURIComponent(b.name)}`)));
-      act.appendChild(mkBtn('🗑', async () => {
+      act.appendChild(iconBtn('download', () => window.open(`/api/servers/${state.selected}/backups/download?name=${encodeURIComponent(b.name)}`), { title: 'Download' }));
+      act.appendChild(iconBtn('trash', async () => {
         if (await confirmDialog({ title: 'Delete backup', body: b.name, danger: true })) {
           await api('DELETE', `/api/servers/${state.selected}/backups?name=${encodeURIComponent(b.name)}`).catch((e) => toast(e.message, true));
           loadBackups();
         }
-      }, 'btn-bad'));
+      }, { cls: 'btn-bad', title: 'Delete' }));
       tb.appendChild(tr);
     }
   } catch (e) { toast(e.message, true); }
@@ -414,12 +540,108 @@ function updateBackup(m) {
   }
 }
 
+// ---- minimal safe Markdown renderer ---------------------------------------
+function mdEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function mdInline(s) {
+  s = s.replace(/`([^`]+)`/g, (m, c) => `<code>${c}</code>`);
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => `<a href="${/^https?:\/\//i.test(u) ? u : '#'}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>');
+  return s;
+}
+function mdToHtml(md) {
+  const lines = mdEsc(md || '').replace(/\r/g, '').split('\n');
+  let html = '', inList = false, inCode = false;
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  const hTag = (n) => (n <= 1 ? 'h3' : n === 2 ? 'h4' : 'h5');
+  for (const raw of lines) {
+    if (/^```/.test(raw)) { if (inCode) { html += '</code></pre>'; inCode = false; } else { closeList(); html += '<pre class="md-code"><code>'; inCode = true; } continue; }
+    if (inCode) { html += raw + '\n'; continue; }
+    const h = raw.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const t = hTag(h[1].length); html += `<${t}>${mdInline(h[2])}</${t}>`; continue; }
+    const li = raw.match(/^\s*[-*]\s+(.*)$/);
+    if (li) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${mdInline(li[1])}</li>`; continue; }
+    if (!raw.trim()) { closeList(); continue; }
+    closeList(); html += `<p>${mdInline(raw)}</p>`;
+  }
+  closeList(); if (inCode) html += '</code></pre>';
+  return html;
+}
+
 // ---- Mods (Modrinth browser) ----------------------------------------------
 let modState = { offset: 0, loading: false };
 function currentServer() { return state.servers.find((s) => s.id === state.selected) || {}; }
 function modInit() {
-  $('#modMcLabel').textContent = currentServer().mcVersion || '';
+  const srv = currentServer();
+  const isPaper = srv.type === 'paper';
+  $('#modMcLabel').textContent = srv.mcVersion || '';
+  // The loadable category depends on platform: Fabric loads mods, Paper loads plugins.
+  // Show only the relevant one (content types — datapacks/resourcepacks/shaders — apply to both).
+  const optMod = $('#modType option[value=mod]'), optPlugin = $('#modType option[value=plugin]');
+  if (optMod) optMod.hidden = isPaper;
+  if (optPlugin) optPlugin.hidden = !isPaper;
+  if (modState.typeFor !== state.selected) {
+    $('#modType').value = isPaper ? 'plugin' : 'mod';
+    modState.typeFor = state.selected;
+  }
+  loadInstalled();
   if (!$('#modResults').dataset.loaded) modSearch(true);
+}
+// The Modrinth project_type of a search hit can't distinguish a Paper plugin from a Fabric mod
+// (both report "mod"), so installs/version-lookups use the user-selected dropdown type instead,
+// which is defaulted to the server's platform.
+function selectedModType() { return $('#modType').value || 'mod'; }
+async function loadInstalled() {
+  if (!state.selected) return;
+  try {
+    const { mods, mcVersion, folder } = await api('GET', `/api/servers/${state.selected}/mods/installed`);
+    const sec = $('#installedSection'), box = $('#installedMods');
+    const noun = folder === 'plugins' ? 'plugins' : 'mods';
+    if (!mods.length) { sec.classList.add('hidden'); return; }
+    sec.classList.remove('hidden');
+    $('#installedCount').textContent = `· ${mods.length} ${noun} · MC ${mcVersion}`;
+    const outdated = mods.filter((m) => m.conflict && m.identified && m.slug);
+    const btn = $('#updateAllBtn');
+    btn.classList.toggle('hidden', !outdated.length);
+    btn.textContent = `Update all outdated (${outdated.length})`;
+    btn.onclick = async () => { btn.disabled = true; for (const m of outdated) await doUpdate(m, null); btn.disabled = false; loadInstalled(); };
+    box.innerHTML = '';
+    mods.forEach((m) => box.appendChild(renderInstalledRow(m, folder || 'mods')));
+  } catch (e) { /* ignore */ }
+}
+function renderInstalledRow(m, folder = 'mods') {
+  const row = document.createElement('div'); row.className = 'mod-card installed' + (m.conflict ? ' conflict' : '');
+  const iconHtml = m.iconUrl ? `<img class="mod-icon" src="${esc(m.iconUrl)}" alt="" loading="lazy" />` : '<div class="mod-icon"></div>';
+  const badge = m.conflict ? `<span class="conflict-badge">${icon('alert', 'ic-sm')} ${esc(m.conflictReason || ('not built for MC ' + currentServer().mcVersion))}</span>` : '';
+  const ver = m.identified ? esc(m.versionNumber) : 'unidentified';
+  row.innerHTML = `${iconHtml}
+    <div class="mod-main">
+      <div class="mod-title">${esc(m.title || m.filename)} ${badge}</div>
+      <div class="mod-desc mono">${esc(m.filename)} · ${ver}</div>
+      <div class="mod-card-actions"></div>
+      <div class="mod-expand"></div>
+    </div>`;
+  const act = row.querySelector('.mod-card-actions');
+  if (m.identified && m.slug) act.appendChild(mkBtn('Details', () => toggleModDetails(row, m)));
+  if (m.conflict && m.slug) { const b = iconBtn('download', () => doUpdate(m, row), { cls: 'btn-accent', label: 'Update' }); act.appendChild(b); }
+  const del = mkBtn('Remove', async () => {
+    if (await confirmDialog({ title: 'Remove ' + (folder === 'plugins' ? 'plugin' : 'mod'), body: m.filename, danger: true })) {
+      await api('DELETE', `/api/servers/${state.selected}/file?path=${encodeURIComponent(folder + '/' + m.filename)}`).catch((e) => toast(e.message, true));
+      loadInstalled();
+    }
+  }); del.className = 'btn btn-bad'; act.appendChild(del);
+  const msg = document.createElement('span'); msg.className = 'mod-msg'; act.appendChild(msg);
+  return row;
+}
+async function doUpdate(m, row) {
+  const msg = row ? row.querySelector('.mod-msg') : null;
+  if (msg) msg.textContent = 'updating…';
+  try {
+    const r = await api('POST', `/api/servers/${state.selected}/mods/update`, { slug: m.slug, filename: m.filename, projectType: m.projectType || 'mod' });
+    if (msg) msg.textContent = 'updated → ' + r.file;
+    toast('updated ' + (m.title || m.slug) + ' → ' + r.file);
+    if (row) loadInstalled();
+  } catch (e) { if (msg) msg.textContent = 'failed: ' + e.message; else toast(e.message, true); }
 }
 $('#modSearchForm').addEventListener('submit', (e) => { e.preventDefault(); modSearch(true); });
 $('#modType').addEventListener('change', () => modSearch(true));
@@ -442,12 +664,12 @@ async function modSearch(reset) {
 }
 function renderModCard(h) {
   const card = document.createElement('div'); card.className = 'mod-card';
-  const icon = h.iconUrl ? `<img class="mod-icon" src="${esc(h.iconUrl)}" alt="" loading="lazy" />` : '<div class="mod-icon"></div>';
-  card.innerHTML = `${icon}
+  const iconHtml = h.iconUrl ? `<img class="mod-icon" src="${esc(h.iconUrl)}" alt="" loading="lazy" />` : '<div class="mod-icon"></div>';
+  card.innerHTML = `${iconHtml}
     <div class="mod-main">
-      <div class="mod-title">${esc(h.title)} <span class="by">by ${esc(h.author || '?')}</span> <span class="mod-dl">▼ ${(h.downloads || 0).toLocaleString()}</span></div>
+      <div class="mod-title">${esc(h.title)} <span class="by">by ${esc(h.author || '?')}</span> <span class="mod-dl">${icon('download', 'ic-sm')} ${(h.downloads || 0).toLocaleString()}</span></div>
       <div class="mod-desc">${esc(h.description || '')}</div>
-      <div class="mod-card-actions"><button class="btn mod-details">Details ▾</button><button class="btn btn-accent mod-quick">Install latest</button><span class="mod-msg"></span></div>
+      <div class="mod-card-actions"><button class="btn mod-details">Details ${icon('chevronDown', 'ic-sm')}</button><button class="btn btn-accent mod-quick">${icon('download')} Install latest</button><span class="mod-msg"></span></div>
       <div class="mod-expand"></div>
     </div>`;
   card.querySelector('.mod-quick').onclick = () => installMod(h, null, card.querySelector('.mod-msg'));
@@ -461,15 +683,14 @@ async function toggleModDetails(card, h) {
   exp.innerHTML = '<div class="muted">loading…</div>';
   try {
     const gv = $('#modMcOnly').checked ? (currentServer().mcVersion || '') : '';
-    const loader = h.projectType === 'mod' ? 'fabric' : '';
     const [proj, vers] = await Promise.all([
       api('GET', `/api/modrinth/project/${encodeURIComponent(h.slug)}`),
-      api('GET', `/api/modrinth/project/${encodeURIComponent(h.slug)}/versions?` + new URLSearchParams({ loader, gameVersion: gv }).toString()),
+      api('GET', `/api/modrinth/project/${encodeURIComponent(h.slug)}/versions?` + new URLSearchParams({ type: selectedModType(), gameVersion: gv }).toString()),
     ]);
     exp.dataset.loaded = '1';
-    const body = (proj.body || proj.description || '').slice(0, 4000);
+    const body = (proj.body || proj.description || '').slice(0, 8000);
     const opts = (vers.versions || []).map((v) => `<option value="${esc(v.id)}">${esc(v.versionNumber)} · MC ${esc((v.gameVersions || []).slice(-3).join(','))} · ${esc((v.loaders || []).join(','))}</option>`).join('');
-    exp.innerHTML = `<div class="mod-body">${esc(body)}</div>
+    exp.innerHTML = `<div class="mod-body md">${mdToHtml(body)}</div>
       <div class="mod-install-row">
         <select class="mod-ver">${opts || '<option value="">no matching version for this server</option>'}</select>
         <button class="btn btn-accent mod-install-ver">Install selected</button>
@@ -483,11 +704,11 @@ async function installMod(h, versionId, msgEl) {
   if (!state.selected) return;
   msgEl.textContent = 'installing…';
   try {
-    const gv = $('#modMcOnly').checked ? (currentServer().mcVersion || '') : '';
-    const r = await api('POST', `/api/servers/${state.selected}/modrinth/install`, { slug: h.slug, versionId, projectType: h.projectType, loader: 'fabric', gameVersion: gv });
-    msgEl.textContent = `✓ installed ${r.file} → ${r.dir}/`;
+    const r = await api('POST', `/api/servers/${state.selected}/modrinth/install`, { slug: h.slug, versionId, projectType: selectedModType() });
+    msgEl.textContent = `installed ${r.file} → ${r.dir}/`;
     toast('installed ' + r.file);
-  } catch (e) { msgEl.textContent = '✗ ' + e.message; }
+    loadInstalled();
+  } catch (e) { msgEl.textContent = 'failed: ' + e.message; }
 }
 
 // ---- settings (editable) + delete -----------------------------------------
@@ -505,13 +726,17 @@ function renderSettings(s) {
   $('#setJar').innerHTML = `<option value="${esc(s.jar || '')}">${esc(s.jar || '(none)')}</option>`;
   $('#setJar').value = s.jar || '';
   $('#jarStatus').textContent = ''; $('#jarDlStatus').textContent = '';
+  $('#btnFabricApi').style.display = (s.type === 'paper') ? 'none' : ''; // Fabric API is Fabric-only
   $('#jarDownloadPanel').classList.add('hidden');
   $('#setStatus').textContent = '';
   updatePreview();
   loadJars(s.id, s.jar); // auto-detect jars in the working dir and fill the selector
   const dir = `${state.info ? state.info.serversDir : ''}/${s.id}`;
+  const net = state.net || {};
   const rows = [['id', s.id], ['Minecraft', s.mcVersion], ['Fabric loader', s.loader || '–'],
-    ['installer', s.installer || '–'], ['directory', dir], ['created', s.createdAt || '–']];
+    ['installer', s.installer || '–'], ['directory', dir], ['created', s.createdAt || '–'],
+    ['connect (Tailscale)', net.tailscaleIp ? `${net.tailscaleIp}:${s.port}` : '–'],
+    ['connect (Public)', net.publicIp ? `${net.publicIp}:${s.port}` : '–']];
   $('#settingsGrid').innerHTML = rows.map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join('');
 }
 function buildPreview() {
@@ -596,13 +821,13 @@ async function loadJars(id, activeJar) {
     const sel = $('#setJar'); sel.innerHTML = '';
     if (activeJar && !jars.find((j) => j.name === activeJar)) {
       const o = document.createElement('option');
-      o.value = activeJar; o.textContent = activeJar + ' — ⚠ not found on disk';
+      o.value = activeJar; o.textContent = activeJar + ' (not found on disk)';
       sel.appendChild(o);
     }
     for (const j of jars) {
       const o = document.createElement('option');
       o.value = j.name;
-      o.textContent = `${j.name}${j.active ? '  ✓active' : ''} · ${fmtBytes(j.size)}`;
+      o.textContent = `${j.name}${j.active ? ' (active)' : ''} · ${fmtBytes(j.size)}`;
       sel.appendChild(o);
     }
     sel.value = activeJar || (jars[0] && jars[0].name) || '';
@@ -611,30 +836,39 @@ async function loadJars(id, activeJar) {
 }
 async function populateJarVersions() {
   try {
-    if (!fabricMeta) fabricMeta = await api('GET', '/api/fabric/meta');
+    const type = $('#jarType').value;
+    let games;
+    if (type === 'paper') {
+      if (!paperVersionsCache) paperVersionsCache = (await api('GET', '/api/paper/versions')).versions;
+      games = paperVersionsCache;
+    } else {
+      if (!fabricMeta) fabricMeta = await api('GET', '/api/fabric/meta');
+      games = fabricMeta.games;
+    }
     const stableOnly = $('#jarStableOnly').checked;
     const sel = $('#jarMcVersion'); sel.innerHTML = '';
-    for (const v of fabricMeta.games) {
+    for (const v of games) {
       if (stableOnly && !v.stable) continue;
-      const o = document.createElement('option'); o.value = v.version; o.textContent = v.version + (v.stable ? '' : ' (snapshot)');
+      const o = document.createElement('option'); o.value = v.version; o.textContent = v.version + (v.stable ? '' : ' (unstable)');
       sel.appendChild(o);
     }
   } catch (e) { $('#jarDlStatus').textContent = 'failed to load versions: ' + e.message; }
 }
+$('#jarType').onchange = populateJarVersions;
 $('#btnDetectJars').onclick = () => {
   const srv = state.servers.find((s) => s.id === state.selected);
   if (srv) { loadJars(srv.id, srv.jar); $('#jarStatus').textContent = 're-detected'; }
 };
 $('#btnDownloadJar').onclick = async () => {
   const p = $('#jarDownloadPanel'); p.classList.toggle('hidden');
-  if (!p.classList.contains('hidden')) await populateJarVersions();
+  if (!p.classList.contains('hidden')) { $('#jarType').value = currentServer().type || 'fabric'; await populateJarVersions(); }
 };
 $('#jarStableOnly').onchange = populateJarVersions;
 $('#btnDoDownloadJar').onclick = async () => {
-  const mcVersion = $('#jarMcVersion').value; if (!mcVersion) return;
-  $('#jarDlStatus').textContent = 'downloading Fabric server jar…';
+  const mcVersion = $('#jarMcVersion').value; const type = $('#jarType').value; if (!mcVersion) return;
+  $('#jarDlStatus').textContent = `downloading ${type === 'paper' ? 'Paper' : 'Fabric'} server jar…`;
   try {
-    const r = await api('POST', `/api/servers/${state.selected}/jars/download`, { mcVersion });
+    const r = await api('POST', `/api/servers/${state.selected}/jars/download`, { type, mcVersion });
     await refreshServers();
     const srv = state.servers.find((s) => s.id === state.selected);
     renderSettings(srv);
@@ -647,7 +881,7 @@ $('#btnFabricApi').onclick = async () => {
   $('#jarStatus').textContent = 'installing Fabric API…';
   try {
     const r = await api('POST', `/api/servers/${state.selected}/jars/fabric-api`, {});
-    $('#jarStatus').textContent = 'Fabric API → ' + r.file;
+    $('#jarStatus').textContent = 'Fabric API: ' + r.file;
     toast('Fabric API installed: ' + r.file);
   } catch (e) { $('#jarStatus').textContent = ''; toast('Fabric API: ' + e.message, true); }
 };
@@ -677,22 +911,19 @@ function updateMetrics(st, host) {
   const srvCpu = running && st.cpuPct != null ? Math.min(100, Math.round(st.cpuPct / cores)) : 0;
   const srvRamBytes = running ? (st.rssBytes || 0) : 0;
   const srvRamPct = Math.min(100, Math.round((srvRamBytes / totalMem) * 100));
-  setGauge('mSrvCpu', srvCpu + '% of machine', 'mSrvCpuFill', srvCpu);
-  setGauge('mSrvRam', `${(srvRamBytes / 1073741824).toFixed(2)} GB · ${srvRamPct}%`, 'mSrvRamFill', srvRamPct);
+  const srv = currentServer();
+  if ($('#mSrvName')) $('#mSrvName').textContent = srv.id || '';
+  if ($('#mSrvState')) $('#mSrvState').textContent = running ? '· running' : '· stopped';
+  setGauge('mSrvCpu', srvCpu + '%', 'mSrvCpuFill', srvCpu);
+  setGauge('mSrvRam', running ? `${(srvRamBytes / 1073741824).toFixed(1)} GB · ${srvRamPct}%` : '–', 'mSrvRamFill', srvRamPct);
   pushMetric(state.metrics.srvCpu, srvCpu); pushMetric(state.metrics.srvRam, srvRamPct);
   const diskTotal = (host && host.diskTotalBytes) || (state.info && state.info.diskTotalBytes) || 1;
   if (st && st.diskBytes != null) {
     const pct = Math.round((st.diskBytes / diskTotal) * 100);
-    setGauge('mSrvDisk', `${(st.diskBytes / 1073741824).toFixed(2)} GB · ${pct}% of disk`, 'mSrvDiskFill', pct);
+    setGauge('mSrvDisk', `${(st.diskBytes / 1073741824).toFixed(1)} GB`, 'mSrvDiskFill', pct);
+    if ($('#mSrvDiskSub')) $('#mSrvDiskSub').textContent = `${pct}% of disk`;
   }
-  if (host) {
-    setGauge('mHostCpu', host.cpuPct + '%', 'mHostCpuFill', host.cpuPct);
-    setGauge('mHostRam', `${(host.memUsedBytes / 1073741824).toFixed(1)} / ${(host.memTotalBytes / 1073741824).toFixed(1)} GB · ${host.memPct}%`, 'mHostRamFill', host.memPct);
-    pushMetric(state.metrics.hostCpu, host.cpuPct); pushMetric(state.metrics.hostRam, host.memPct);
-    if (host.diskTotalBytes) {
-      setGauge('mHostDisk', `${(host.diskUsedBytes / 1073741824).toFixed(0)} / ${(host.diskTotalBytes / 1073741824).toFixed(0)} GB · ${host.diskPct}%`, 'mHostDiskFill', host.diskPct);
-    }
-  }
+  if (host) renderHostMetrics(host); // host metrics live in the sidebar now
   if ($('#tab-metrics').classList.contains('active')) drawAllSparks();
 }
 function drawSpark(id, data, color) {
@@ -715,8 +946,6 @@ function drawSpark(id, data, color) {
 function drawAllSparks() {
   drawSpark('mSrvCpuSpark', state.metrics.srvCpu, '#5b8cff');
   drawSpark('mSrvRamSpark', state.metrics.srvRam, '#3fb950');
-  drawSpark('mHostCpuSpark', state.metrics.hostCpu, '#5b8cff');
-  drawSpark('mHostRamSpark', state.metrics.hostRam, '#3fb950');
 }
 $('#btnDelete').onclick = async () => {
   const id = state.selected;
@@ -730,42 +959,250 @@ $('#btnDelete').onclick = async () => {
 // ---- new server ------------------------------------------------------------
 $('#newServerBtn').onclick = openNewServer;
 let fabricMeta = null;
+let nsWorldFile = null;
 async function openNewServer() {
   $('#newServerModal').classList.remove('hidden');
   $('#nsStatus').textContent = ''; $('#nsName').value = ''; $('#nsMemory').value = '4G';
+  $('#nsType').value = 'fabric'; $('#nsFabricApiRow').style.display = '';
   $('#nsVersion').innerHTML = '<option>loading…</option>';
+  nsWorldFile = null; $('#nsWorldName').textContent = '';
+  $('#nsWorldDrop').innerHTML = worldDropHTML();
+  $('#nsWorldBar').classList.add('hidden'); $('#nsWorldFill').style.width = '0%';
   try {
     fabricMeta = await api('GET', '/api/fabric/meta');
     $('#nsMeta').textContent = `loader ${fabricMeta.latestLoader} · installer ${fabricMeta.latestInstaller}`;
     fillVersions();
   } catch (e) { $('#nsStatus').textContent = 'failed to load versions: ' + e.message; }
 }
-function fillVersions() {
+// world.zip drag-and-drop
+function setWorldFile(f) {
+  if (!f) return;
+  if (!/\.zip$/i.test(f.name)) return toast('please choose a .zip file', true);
+  nsWorldFile = f;
+  $('#nsWorldName').textContent = `${f.name} · ${fmtBytes(f.size)}`;
+  $('#nsWorldDrop').innerHTML = icon('check') + ' world selected — drop another to replace';
+}
+$('#nsWorldDrop').onclick = () => $('#nsWorldInput').click();
+$('#nsWorldInput').onchange = (e) => setWorldFile(e.target.files[0]);
+['dragenter', 'dragover'].forEach((ev) => $('#nsWorldDrop').addEventListener(ev, (e) => { e.preventDefault(); $('#nsWorldDrop').classList.add('drag'); }));
+['dragleave', 'drop'].forEach((ev) => $('#nsWorldDrop').addEventListener(ev, (e) => { e.preventDefault(); $('#nsWorldDrop').classList.remove('drag'); }));
+$('#nsWorldDrop').addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) setWorldFile(e.dataTransfer.files[0]); });
+function uploadWorld(id, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/servers/${id}/import-world`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      let d = {}; try { d = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300 && d.ok) resolve(d);
+      else reject(new Error(d.error || ('HTTP ' + xhr.status)));
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(file);
+  });
+}
+let paperVersionsCache = null;
+async function fillVersions() {
+  const type = $('#nsType').value;
+  $('#nsFabricApiRow').style.display = type === 'paper' ? 'none' : '';
+  const sel = $('#nsVersion');
+  let games;
+  if (type === 'paper') {
+    if (!paperVersionsCache) { sel.innerHTML = '<option>loading…</option>'; try { paperVersionsCache = (await api('GET', '/api/paper/versions')).versions; } catch (e) { sel.innerHTML = ''; $('#nsStatus').textContent = 'failed to load Paper versions: ' + e.message; return; } }
+    games = paperVersionsCache;
+  } else {
+    if (!fabricMeta) return;
+    games = fabricMeta.games;
+  }
   const stableOnly = $('#nsStableOnly').checked;
-  const sel = $('#nsVersion'); sel.innerHTML = '';
-  for (const v of fabricMeta.games) {
+  sel.innerHTML = '';
+  for (const v of games) {
     if (stableOnly && !v.stable) continue;
-    const o = document.createElement('option'); o.value = v.version; o.textContent = v.version + (v.stable ? '' : ' (snapshot)');
+    const o = document.createElement('option'); o.value = v.version; o.textContent = v.version + (v.stable ? '' : ' (unstable)');
     sel.appendChild(o);
   }
 }
 $('#nsStableOnly').onchange = fillVersions;
+$('#nsType').onchange = fillVersions;
 $('#nsCancel').onclick = () => $('#newServerModal').classList.add('hidden');
 $('#nsCreate').onclick = async () => {
   const name = $('#nsName').value.trim(); const mcVersion = $('#nsVersion').value; const memory = $('#nsMemory').value.trim() || '4G';
+  const type = $('#nsType').value;
   if (!name) return toast('name required', true);
-  $('#nsCreate').disabled = true; $('#nsStatus').textContent = 'creating (downloading Fabric server jar)…';
+  $('#nsCreate').disabled = true; $('#nsStatus').textContent = `creating (downloading ${type === 'paper' ? 'Paper' : 'Fabric'} server jar)…`;
   try {
-    const { server } = await api('POST', '/api/servers', { name, mcVersion, memory });
-    if ($('#nsFabricApi').checked) {
+    const { server } = await api('POST', '/api/servers', { name, mcVersion, memory, type });
+    if (type === 'fabric' && $('#nsFabricApi').checked) {
       $('#nsStatus').textContent = 'installing Fabric API…';
       try { await api('POST', `/api/servers/${server.id}/jars/fabric-api`, { mcVersion }); } catch (e) { toast('created, but Fabric API failed: ' + e.message, true); }
+    }
+    if (nsWorldFile) {
+      $('#nsWorldBar').classList.remove('hidden');
+      $('#nsStatus').textContent = 'uploading world…';
+      try {
+        await uploadWorld(server.id, nsWorldFile, (pct) => {
+          $('#nsWorldFill').style.width = pct + '%';
+          $('#nsStatus').textContent = pct < 100 ? `uploading world… ${pct}%` : 'extracting & configuring world…';
+        });
+        toast('world imported into ' + server.id);
+      } catch (e) { toast('created, but world import failed: ' + e.message, true); }
     }
     $('#newServerModal').classList.add('hidden');
     await refreshServers(); location.hash = '#/' + server.id; route(); toast('created ' + server.id);
   } catch (e) { $('#nsStatus').textContent = 'error: ' + e.message; }
   finally { $('#nsCreate').disabled = false; }
 };
+
+// ---- Players (GUI playerdata + inventory editor) ---------------------------
+const COMMON_ITEMS = ['minecraft:diamond', 'minecraft:diamond_block', 'minecraft:netherite_ingot', 'minecraft:netherite_block', 'minecraft:emerald', 'minecraft:gold_ingot', 'minecraft:iron_ingot', 'minecraft:copper_ingot', 'minecraft:coal', 'minecraft:redstone', 'minecraft:lapis_lazuli', 'minecraft:diamond_sword', 'minecraft:netherite_sword', 'minecraft:diamond_pickaxe', 'minecraft:netherite_pickaxe', 'minecraft:diamond_axe', 'minecraft:diamond_shovel', 'minecraft:diamond_hoe', 'minecraft:elytra', 'minecraft:diamond_helmet', 'minecraft:diamond_chestplate', 'minecraft:diamond_leggings', 'minecraft:diamond_boots', 'minecraft:netherite_helmet', 'minecraft:netherite_chestplate', 'minecraft:netherite_leggings', 'minecraft:netherite_boots', 'minecraft:shield', 'minecraft:bow', 'minecraft:crossbow', 'minecraft:trident', 'minecraft:arrow', 'minecraft:totem_of_undying', 'minecraft:golden_apple', 'minecraft:enchanted_golden_apple', 'minecraft:ender_pearl', 'minecraft:experience_bottle', 'minecraft:tnt', 'minecraft:obsidian', 'minecraft:cobblestone', 'minecraft:stone', 'minecraft:dirt', 'minecraft:oak_log', 'minecraft:oak_planks', 'minecraft:torch', 'minecraft:crafting_table', 'minecraft:furnace', 'minecraft:chest', 'minecraft:shulker_box', 'minecraft:ender_chest', 'minecraft:bread', 'minecraft:cooked_beef', 'minecraft:water_bucket', 'minecraft:lava_bucket', 'minecraft:bucket', 'minecraft:flint_and_steel', 'minecraft:bookshelf', 'minecraft:enchanting_table', 'minecraft:anvil', 'minecraft:nether_star', 'minecraft:beacon', 'minecraft:dragon_egg', 'minecraft:netherite_upgrade_smithing_template'];
+let playersAll = [], pState = null, slotCtx = null;
+function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; }
+function intv(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; }
+function range(a, b) { const r = []; for (let i = a; i <= b; i++) r.push(i); return r; }
+
+function loadPlayers() {
+  if (!state.selected) return;
+  const dl = $('#itemList'); if (dl && !dl.childElementCount) dl.innerHTML = COMMON_ITEMS.map((i) => `<option value="${i}">`).join('');
+  const running = currentServer().status && currentServer().status.running;
+  $('#playersBanner').classList.toggle('hidden', !running);
+  if (running) $('#playersBanner').textContent = 'The server is running — whitelist/bans below apply live, but the inventory & stats editor is disabled (stop the server to edit player data).';
+  loadAccess();
+  api('GET', `/api/servers/${state.selected}/players`).then(({ players }) => { playersAll = players; renderPlayerList(); }).catch((e) => toast(e.message, true));
+}
+// --- access control (whitelist / bans) ---
+function loadAccess() {
+  if (!state.selected) return;
+  api('GET', `/api/servers/${state.selected}/access`).then(renderAccess).catch(() => {});
+}
+function renderAccess(l) {
+  const entry = (label, attrs, reason) => `<div class="access-entry"><span class="ae-name">${esc(label)}</span>${reason ? `<span class="ae-reason">${esc(reason)}</span>` : ''}<button class="btn btn-bad" ${attrs} title="remove">${icon('x', 'ic-sm')}</button></div>`;
+  const wl = l.whitelist.length ? l.whitelist.map((e) => entry(e.name || e.uuid, `data-act="whitelist_remove" data-name="${esc(e.name || '')}"`)).join('') : '<div class="access-empty">empty</div>';
+  const bans = l.banned.length ? l.banned.map((e) => entry(e.name || e.uuid, `data-act="pardon" data-name="${esc(e.name || '')}"`, e.reason)).join('') : '<div class="access-empty">none</div>';
+  const ips = l.bannedIps.length ? l.bannedIps.map((e) => entry(e.ip, `data-act="pardon_ip" data-ip="${esc(e.ip)}"`, e.reason)).join('') : '<div class="access-empty">none</div>';
+  $('#accessPanel').innerHTML = `
+    <div class="access-card"><h4>Whitelist <span class="toggle-pill ${l.whitelistEnabled ? 'on' : 'off'}" data-act="${l.whitelistEnabled ? 'whitelist_off' : 'whitelist_on'}">${l.whitelistEnabled ? 'enabled' : 'disabled'}</span></h4>
+      <div class="access-add"><input class="acc-in" placeholder="player name" /><button class="btn btn-accent" data-act="whitelist_add">${icon('plus')}</button></div>
+      <div class="access-entries">${wl}</div></div>
+    <div class="access-card"><h4>Banned players</h4>
+      <div class="access-add"><input class="acc-in" placeholder="player name" /><button class="btn btn-bad" data-act="ban">Ban</button></div>
+      <div class="access-entries">${bans}</div></div>
+    <div class="access-card"><h4>Banned IPs</h4>
+      <div class="access-add"><input class="acc-in" placeholder="1.2.3.4" /><button class="btn btn-bad" data-act="ban_ip">Ban IP</button></div>
+      <div class="access-entries">${ips}</div></div>`;
+}
+async function accessAction(action, params) {
+  try { renderAccess(await api('POST', `/api/servers/${state.selected}/access`, { action, ...params })); }
+  catch (e) { toast(e.message, true); }
+}
+function accessAdd(btn) {
+  const inp = btn.closest('.access-card').querySelector('.acc-in');
+  const val = inp.value.trim(); if (!val) return; inp.value = '';
+  accessAction(btn.dataset.act, btn.dataset.act === 'ban_ip' ? { ip: val } : { name: val });
+}
+$('#accessPanel').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-act]'); if (!btn) return;
+  const act = btn.dataset.act;
+  if (btn.dataset.name !== undefined) accessAction(act, { name: btn.dataset.name });
+  else if (btn.dataset.ip !== undefined) accessAction(act, { ip: btn.dataset.ip });
+  else if (act === 'whitelist_on' || act === 'whitelist_off') accessAction(act, {});
+  else accessAdd(btn);
+});
+$('#accessPanel').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target.classList.contains('acc-in')) return;
+  const btn = e.target.closest('.access-add').querySelector('[data-act]'); if (btn) accessAdd(btn);
+});
+function renderPlayerList() {
+  const q = ($('#playerSearch').value || '').toLowerCase();
+  const list = $('#playersList'); list.innerHTML = '';
+  for (const p of playersAll) {
+    if (q && !((p.name || '').toLowerCase().includes(q) || p.uuid.includes(q))) continue;
+    const b = document.createElement('button');
+    b.className = 'player-item' + (pState && pState.uuid === p.uuid ? ' active' : '');
+    b.innerHTML = `<div>${esc(p.name || '(unknown)')}</div><div class="uuid">${esc(p.uuid)}</div>`;
+    b.onclick = () => selectPlayer(p.uuid);
+    list.appendChild(b);
+  }
+  if (!list.childElementCount) list.innerHTML = '<div class="muted" style="padding:8px">No players found.</div>';
+}
+$('#playerSearch').addEventListener('input', renderPlayerList);
+async function selectPlayer(uuid) {
+  try {
+    const d = await api('GET', `/api/servers/${state.selected}/players/${uuid}`);
+    pState = { uuid: d.uuid, name: d.name, health: d.health, foodLevel: d.foodLevel, xpLevel: d.xpLevel, gamemode: d.gamemode, dimension: d.dimension, pos: d.pos.slice(), inv: {}, ender: {} };
+    d.inventory.forEach((it) => { pState.inv[it.slot] = { id: it.id, count: it.count }; });
+    d.enderItems.forEach((it) => { pState.ender[it.slot] = { id: it.id, count: it.count }; });
+    renderEditor(); renderPlayerList();
+  } catch (e) { toast(e.message, true); }
+}
+function slotCell(kind, slot, map) {
+  const it = map[slot];
+  const filled = it && it.id;
+  const short = filled ? it.id.replace(/^minecraft:/, '') : '';
+  return `<div class="slot ${filled ? 'filled' : ''}${slot < 0 || slot >= 100 ? ' special' : ''}" data-kind="${kind}" data-slot="${slot}" title="${filled ? esc(it.id + ' ×' + it.count) : 'slot ' + slot + ' — empty'}">${filled ? `<span class="slot-id">${esc(short)}</span><span class="slot-count">${it.count > 1 ? it.count : ''}</span>` : ''}</div>`;
+}
+function renderEditor() {
+  if (!pState) return;
+  const p = pState;
+  const gm = ['Survival', 'Creative', 'Adventure', 'Spectator'];
+  const dims = ['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end'];
+  const dimOpts = dims.map((dd) => `<option ${dd === p.dimension ? 'selected' : ''}>${dd}</option>`).join('') + (dims.includes(p.dimension) ? '' : `<option selected>${esc(p.dimension)}</option>`);
+  $('#playerEdit').innerHTML = `
+    <div class="pe-head"><b>${esc(p.name || '(unknown)')}</b> <span class="muted mono">${esc(p.uuid)}</span></div>
+    <div class="pe-stats">
+      <label>Game mode <select id="peGm">${gm.map((g, i) => `<option value="${i}" ${i === p.gamemode ? 'selected' : ''}>${g}</option>`).join('')}</select></label>
+      <label>Health <input id="peHealth" value="${p.health}"></label>
+      <label>Food <input id="peFood" value="${p.foodLevel}"></label>
+      <label>XP level <input id="peXp" value="${p.xpLevel}"></label>
+      <label>Dimension <select id="peDim">${dimOpts}</select></label>
+      <label>X <input id="peX" value="${p.pos[0]}"></label>
+      <label>Y <input id="peY" value="${p.pos[1]}"></label>
+      <label>Z <input id="peZ" value="${p.pos[2]}"></label>
+    </div>
+    <div class="inv-section"><h4>Armor &amp; offhand <span class="muted">(helmet · chest · legs · boots · offhand)</span></h4>
+      <div class="inv-grid armor">${[103, 102, 101, 100, -106].map((s) => slotCell('inv', s, p.inv)).join('')}</div></div>
+    <div class="inv-section"><h4>Inventory</h4>
+      <div class="inv-grid">${range(9, 35).map((s) => slotCell('inv', s, p.inv)).join('')}</div>
+      <div class="inv-grid inv-hotbar">${range(0, 8).map((s) => slotCell('inv', s, p.inv)).join('')}</div></div>
+    <div class="inv-section"><h4>Ender chest</h4>
+      <div class="inv-grid">${range(0, 26).map((s) => slotCell('ender', s, p.ender)).join('')}</div></div>
+    <button id="peSave" class="btn btn-accent">${icon('check')} Save player</button>
+    <span id="peSaveMsg" class="muted" style="margin-left:8px"></span>`;
+}
+$('#playerEdit').addEventListener('click', (e) => {
+  const slotEl = e.target.closest('.slot');
+  if (slotEl) return openSlotEditor(slotEl.dataset.kind, parseInt(slotEl.dataset.slot, 10));
+  if (e.target.closest('#peSave')) savePlayer();
+});
+function openSlotEditor(kind, slot) {
+  slotCtx = { kind, slot };
+  const it = pState[kind][slot] || {};
+  $('#slotTitle').textContent = `${kind === 'ender' ? 'Ender' : 'Inventory'} slot ${slot}`;
+  $('#slotId').value = it.id || ''; $('#slotCount').value = it.count || 1;
+  $('#slotModal').classList.remove('hidden'); setTimeout(() => $('#slotId').focus(), 50);
+}
+$('#slotCancel').onclick = () => $('#slotModal').classList.add('hidden');
+$('#slotSet').onclick = () => {
+  const id = $('#slotId').value.trim(), c = Math.max(1, parseInt($('#slotCount').value, 10) || 1);
+  if (id) pState[slotCtx.kind][slotCtx.slot] = { id, count: c }; else delete pState[slotCtx.kind][slotCtx.slot];
+  $('#slotModal').classList.add('hidden'); renderEditor();
+};
+$('#slotClear').onclick = () => { delete pState[slotCtx.kind][slotCtx.slot]; $('#slotModal').classList.add('hidden'); renderEditor(); };
+function mapToArr(map) { return Object.entries(map).map(([slot, it]) => ({ slot: parseInt(slot, 10), id: it.id, count: it.count })); }
+async function savePlayer() {
+  if (!pState) return;
+  const msg = $('#peSaveMsg'); msg.textContent = 'saving…';
+  const edits = {
+    health: num($('#peHealth').value), foodLevel: intv($('#peFood').value), xpLevel: intv($('#peXp').value),
+    gamemode: intv($('#peGm').value), dimension: $('#peDim').value,
+    pos: [num($('#peX').value), num($('#peY').value), num($('#peZ').value)],
+    inventory: mapToArr(pState.inv), enderItems: mapToArr(pState.ender),
+  };
+  try {
+    await api('PUT', `/api/servers/${state.selected}/players/${pState.uuid}`, edits);
+    msg.textContent = 'saved (backup kept as .dat.bak)';
+    toast('saved player ' + (pState.name || pState.uuid));
+  } catch (e) { msg.textContent = ''; toast(e.message, true); }
+}
 
 // ---- AI copilot ------------------------------------------------------------
 const aiState = { contents: [], model: '', pending: 0, responses: [], busy: false };
@@ -795,7 +1232,7 @@ function renderAiMsg(role, text) {
 }
 function setTyping(on) {
   let t = $('#aiTyping');
-  if (on && !t) { t = document.createElement('div'); t.id = 'aiTyping'; t.className = 'ai-typing'; t.textContent = '✦ thinking…'; $('#aiThread').appendChild(t); aiScroll(); }
+  if (on && !t) { t = document.createElement('div'); t.id = 'aiTyping'; t.className = 'ai-typing'; t.textContent = 'thinking…'; $('#aiThread').appendChild(t); aiScroll(); }
   else if (!on && t) t.remove();
 }
 async function aiTurn(userText) {
@@ -807,6 +1244,7 @@ async function aiTurn(userText) {
     if (r.text) renderAiMsg('assistant', r.text);
     const calls = r.functionCalls || [];
     if (calls.length) { aiState.pending = calls.length; aiState.responses = []; calls.forEach(renderActionCard); }
+    else if (!r.text) renderAiMsg('assistant', '(no response — try rephrasing)');
   } catch (e) { renderAiMsg('error', e.message); }
   finally { aiState.busy = false; setTyping(false); }
 }
@@ -814,8 +1252,8 @@ function renderActionCard(fc) {
   const a = fc.args || {};
   const kind = fc.name === 'terminal_command' ? 'terminal' : fc.name === 'console_command' ? 'console' : 'config';
   const labels = {
-    set_server_config: '⚙ modify config', console_command: '⌨ console command', terminal_command: '⚠ host terminal command',
-    server_lifecycle: '⚙ server: ' + esc(a.action || 'lifecycle'), create_backup: '⚙ create backup', install_mod: '⚙ install mod',
+    set_server_config: icon('gear') + ' modify config', console_command: icon('terminal') + ' console command', terminal_command: icon('alert') + ' host terminal command',
+    server_lifecycle: icon('gear') + ' server: ' + esc(a.action || 'lifecycle'), create_backup: icon('archive') + ' create backup', install_mod: icon('package') + ' install mod',
   };
   const label = labels[fc.name] || esc(fc.name);
   let body = '';
@@ -847,10 +1285,10 @@ function renderActionCard(fc) {
       result.className = 'ai-result ok';
       const summary = r.output || r.recentConsole || (r.file ? `installed ${r.file} → ${r.dir}/` : '')
         || (r.action ? `${r.action} done (running=${r.running})` : '') || (r.startedBackup ? `backup started: ${r.startedBackup}` : '') || r.note || 'done';
-      result.textContent = '✓ ' + summary;
+      result.textContent = summary;
       resolveAction(fc.name, r);
     } catch (e) {
-      result.className = 'ai-result bad'; result.textContent = '✗ ' + e.message;
+      result.className = 'ai-result bad'; result.textContent = e.message;
       resolveAction(fc.name, { ok: false, error: e.message });
     }
     refreshServers();
@@ -873,7 +1311,9 @@ function resolveAction(name, response) {
 
 // ---- boot ------------------------------------------------------------------
 (async function boot() {
+  iconifyStatic(); // replace static button labels with SVG icons
   try { state.info = await api('GET', '/api/info'); renderHostInfo(); } catch {}
+  try { renderNetwork(await api('GET', '/api/network')); } catch {}
   try {
     const c = await api('GET', '/api/ai/config');
     if (c.configured) { aiState.model = c.model; $('#aiModel').textContent = c.model; }
@@ -882,8 +1322,12 @@ function resolveAction(name, response) {
   await refreshServers();
   route(); // restore selected server/tab from the URL hash (deep-link / refresh)
   setInterval(refreshServers, 5000);
+  // auto-refresh the file list while the Files tab is open (skips re-render if unchanged)
+  setInterval(() => {
+    if (state.selected && !filesUploading && $('#tab-files').classList.contains('active')) loadFiles(state.cwd, { auto: true });
+  }, 5000);
 })();
 function renderHostInfo() {
   const i = state.info; if (!i) return;
-  $('#hostInfo').innerHTML = `host: ${i.cpus} cores · ${fmtBytes(i.totalMemBytes)} RAM<br>disk: ${fmtBytes(i.diskUsedBytes)} / ${fmtBytes(i.diskTotalBytes)} used<br>zstd: ${i.compression.zstd ? '✓' : '✗'} · pv: ${i.compression.pv ? '✓' : '✗'}`;
+  $('#hostInfo').innerHTML = `${i.cpus} cores · zstd ${i.compression.zstd ? 'on' : 'off'} · pv ${i.compression.pv ? 'on' : 'off'}`;
 }

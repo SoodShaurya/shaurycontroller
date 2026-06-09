@@ -5,9 +5,12 @@
   "private": true,
   "type": "commonjs",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "express": "^4.21.2",
+    "prismarine-nbt": "^2.8.0",
     "ws": "^8.18.0"
   }
 }

@@ -12,7 +12,12 @@
     <div class="brand">shaury<span>controller</span></div>
     <div id="serverList" class="server-list"></div>
     <button id="newServerBtn" class="btn btn-accent block">＋ New server</button>
-    <div id="hostInfo" class="host-info"></div>
+    <div class="host-panel">
+      <div class="host-title">Host</div>
+      <div id="hostMetrics" class="host-metrics"></div>
+      <div id="hostNet" class="host-net"></div>
+      <div id="hostInfo" class="host-info"></div>
+    </div>
   </aside>
 
   <main id="main">
@@ -41,6 +46,7 @@
         <button class="tab" data-tab="config">Config</button>
         <button class="tab" data-tab="mods">Mods</button>
         <button class="tab" data-tab="backups">Backups</button>
+        <button class="tab" data-tab="players">Players</button>
         <button class="tab" data-tab="metrics">Metrics</button>
         <button class="tab" data-tab="settings">Settings</button>
       </nav>
@@ -64,6 +70,7 @@
           <button id="btnRefreshFiles" class="btn">Refresh</button>
           <input id="uploadInput" type="file" multiple hidden />
         </div>
+        <div id="fileUploadProgress" class="upload-progress"><span id="fileUploadLabel"></span><span class="bar"><span id="fileUploadFill" class="bar-fill"></span></span><span id="fileUploadPct"></span></div>
         <table class="file-table">
           <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody id="fileRows"></tbody>
@@ -91,6 +98,12 @@
           <label class="chk"><input type="checkbox" id="modMcOnly" checked /> match <span id="modMcLabel" class="mono"></span></label>
           <button class="btn btn-accent" type="submit">Search</button>
         </form>
+        <div id="installedSection" class="hidden">
+          <div class="mod-section-head"><span>Installed <span id="installedCount" class="muted"></span></span>
+            <button id="updateAllBtn" class="btn btn-accent hidden">Update all outdated</button></div>
+          <div id="installedMods" class="mod-results"></div>
+        </div>
+        <div class="mod-section-head"><span>Browse Modrinth</span></div>
         <div id="modResults" class="mod-results"></div>
         <button id="modMore" class="btn block hidden">Load more</button>
       </div>
@@ -112,42 +125,37 @@
         </table>
       </div>
 
+      <!-- Players (GUI playerdata + inventory editor) -->
+      <div class="tabpane" id="tab-players">
+        <div id="accessPanel" class="access-panel"></div>
+        <div id="playersBanner" class="players-banner hidden"></div>
+        <div class="players-layout">
+          <div class="players-side">
+            <input id="playerSearch" type="text" placeholder="Search players…" autocomplete="off" />
+            <div id="playersList" class="players-list"></div>
+          </div>
+          <div id="playerEdit" class="player-edit"><div class="muted">Select a player to edit.</div></div>
+        </div>
+      </div>
+
       <!-- Metrics -->
       <div class="tabpane" id="tab-metrics">
-        <div class="metrics-wrap">
-          <div class="metric-col">
-            <h3>This server <span id="mSrvName" class="muted"></span></h3>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>CPU</span><span id="mSrvCpu" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mSrvCpuFill" class="bar-fill"></div></div>
-              <canvas id="mSrvCpuSpark" class="spark" height="40"></canvas>
-            </div>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>RAM</span><span id="mSrvRam" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mSrvRamFill" class="bar-fill"></div></div>
-              <canvas id="mSrvRamSpark" class="spark" height="40"></canvas>
-            </div>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>STORAGE (server folder)</span><span id="mSrvDisk" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mSrvDiskFill" class="bar-fill"></div></div>
-            </div>
+        <div class="metric-head">Live metrics — <span id="mSrvName" class="mono"></span> <span id="mSrvState" class="muted"></span></div>
+        <div class="metric-cards">
+          <div class="gauge-card">
+            <div class="gauge-head"><span class="gauge-label" id="mCpuLabel">CPU</span><span id="mSrvCpu" class="gauge-val">–</span></div>
+            <div class="bar"><div id="mSrvCpuFill" class="bar-fill"></div></div>
+            <canvas id="mSrvCpuSpark" class="spark" height="48"></canvas>
           </div>
-          <div class="metric-col">
-            <h3>Host (whole machine)</h3>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>CPU</span><span id="mHostCpu" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mHostCpuFill" class="bar-fill"></div></div>
-              <canvas id="mHostCpuSpark" class="spark" height="40"></canvas>
-            </div>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>RAM</span><span id="mHostRam" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mHostRamFill" class="bar-fill"></div></div>
-              <canvas id="mHostRamSpark" class="spark" height="40"></canvas>
-            </div>
-            <div class="gauge-card">
-              <div class="gauge-head"><span>STORAGE (disk)</span><span id="mHostDisk" class="gauge-val">–</span></div>
-              <div class="bar"><div id="mHostDiskFill" class="bar-fill"></div></div>
-            </div>
+          <div class="gauge-card">
+            <div class="gauge-head"><span class="gauge-label" id="mRamLabel">Memory</span><span id="mSrvRam" class="gauge-val">–</span></div>
+            <div class="bar"><div id="mSrvRamFill" class="bar-fill"></div></div>
+            <canvas id="mSrvRamSpark" class="spark" height="48"></canvas>
+          </div>
+          <div class="gauge-card">
+            <div class="gauge-head"><span class="gauge-label" id="mDiskLabel">Storage</span><span id="mSrvDisk" class="gauge-val">–</span></div>
+            <div class="bar"><div id="mSrvDiskFill" class="bar-fill"></div></div>
+            <div class="gauge-sub muted" id="mSrvDiskSub"></div>
           </div>
         </div>
       </div>
@@ -172,13 +180,14 @@
             <select id="setJar"></select>
           </label>
           <div class="jar-tools">
-            <button type="button" id="btnDetectJars" class="btn">↻ Detect</button>
-            <button type="button" id="btnDownloadJar" class="btn">⬇ Download server jar…</button>
+            <button type="button" id="btnDetectJars" class="btn">Detect</button>
+            <button type="button" id="btnDownloadJar" class="btn">Download server jar…</button>
             <button type="button" id="btnFabricApi" class="btn">Install / update Fabric API</button>
-            <button type="button" id="btnPruneJars" class="btn btn-bad">🧹 Prune unused jars</button>
+            <button type="button" id="btnPruneJars" class="btn btn-bad">Prune unused jars</button>
             <span id="jarStatus" class="muted"></span>
           </div>
           <div id="jarDownloadPanel" class="jar-download hidden">
+            <label>Platform <select id="jarType"><option value="fabric">Fabric</option><option value="paper">Paper</option></select></label>
             <label>Minecraft version <select id="jarMcVersion"></select></label>
             <label class="chk"><input type="checkbox" id="jarStableOnly" checked /> stable only</label>
             <button type="button" id="btnDoDownloadJar" class="btn btn-accent">Download &amp; select</button>
@@ -203,14 +212,22 @@
 <!-- New server modal -->
 <div id="newServerModal" class="modal hidden">
   <div class="modal-card">
-    <h2>Create Fabric server</h2>
+    <h2>Create server</h2>
     <label>Name <input id="nsName" type="text" placeholder="my-server" /></label>
+    <label>Server type
+      <select id="nsType"><option value="fabric">Fabric (mods)</option><option value="paper">Paper (plugins)</option></select>
+    </label>
     <label>Minecraft version
       <select id="nsVersion"></select>
     </label>
     <label class="chk"><input type="checkbox" id="nsStableOnly" checked /> stable versions only</label>
     <label>Memory <input id="nsMemory" type="text" value="4G" /></label>
-    <label class="chk"><input type="checkbox" id="nsFabricApi" checked /> also install Fabric API (most mods need it)</label>
+    <label class="chk" id="nsFabricApiRow"><input type="checkbox" id="nsFabricApi" checked /> also install Fabric API (most mods need it)</label>
+    <label>Import world <span class="muted">(optional)</span></label>
+    <div id="nsWorldDrop" class="world-drop">Drag &amp; drop a <b>world .zip</b> here, or click to browse</div>
+    <input id="nsWorldInput" type="file" accept=".zip,application/zip" hidden />
+    <div id="nsWorldName" class="muted mono"></div>
+    <div id="nsWorldBar" class="bar hidden" style="margin-top:6px"><div id="nsWorldFill" class="bar-fill"></div></div>
     <div id="nsMeta" class="muted mono"></div>
     <div id="nsStatus" class="muted"></div>
     <div class="modal-actions">
@@ -248,14 +265,30 @@
   </div>
 </div>
 
+<!-- Inventory slot editor -->
+<div id="slotModal" class="modal hidden">
+  <div class="modal-card">
+    <h2 id="slotTitle" class="mono">Edit slot</h2>
+    <label>Item id <input id="slotId" type="text" list="itemList" placeholder="minecraft:diamond" autocomplete="off" /></label>
+    <datalist id="itemList"></datalist>
+    <label>Count <input id="slotCount" type="text" inputmode="numeric" value="1" /></label>
+    <div class="modal-actions">
+      <button id="slotClear" class="btn btn-bad">Clear slot</button>
+      <span class="spacer"></span>
+      <button id="slotCancel" class="btn">Cancel</button>
+      <button id="slotSet" class="btn btn-accent">Set</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <!-- AI copilot: floating launcher (accessible everywhere) + slide-in drawer -->
-<button id="aiLauncher" class="ai-launcher" title="Ask the AI copilot">✦</button>
+<button id="aiLauncher" class="ai-launcher" title="Ask the AI copilot"></button>
 <div id="aiDrawer" class="ai-drawer hidden">
   <div class="ai-head">
-    <div class="ai-title">✦ Copilot <span id="aiModel" class="ai-model"></span></div>
-    <button id="aiClose" class="btn">✕</button>
+    <div class="ai-title">Copilot <span id="aiModel" class="ai-model"></span></div>
+    <button id="aiClose" class="btn"></button>
   </div>
   <div class="ai-note">Proposes actions; <b>nothing runs without your approval</b>. Focused on <span id="aiFocus" class="mono">—</span>.</div>
   <div id="aiThread" class="ai-thread"></div>

@@ -90,7 +90,7 @@ const TOOLS = [{
     },
     {
       name: 'install_mod',
-      description: 'Install a mod/plugin/datapack from Modrinth into a server (matched to its MC version + Fabric). Use the Modrinth project slug.',
+      description: 'Install a mod/plugin/datapack from Modrinth into a server, matched to its MC version AND platform (Fabric servers take mods, Paper servers take plugins — the panel rejects an incompatible project). Use the Modrinth project slug. projectType defaults to the server\'s platform (plugin for Paper, mod for Fabric).',
       parameters: {
         type: 'object',
         properties: {
@@ -104,9 +104,36 @@ const TOOLS = [{
   ],
 }];
 
-const SYSTEM_BASE = `You are the in-panel operations copilot for "shaurycontroller", a web panel that manages Fabric Minecraft servers on a Linux (aarch64) host.
+const SYSTEM_BASE = `You are "Copilot", the expert in-panel operations assistant for **shaurycontroller**, a web panel that manages Minecraft servers (both **Fabric** and **Paper**). Act like a senior Minecraft server administrator pair-working with the user: proactive, precise, and safety-conscious. Diagnose root causes, propose concrete minimal fixes, and explain your reasoning briefly.
 
-You can act ONLY through these tools: set_server_config, console_command, terminal_command, server_lifecycle (start/stop/restart/kill), create_backup, install_mod (from Modrinth). IMPORTANT: every tool call you make is shown to the human and executed ONLY after they explicitly Approve it — so propose precise, minimal actions and briefly explain WHY before/with each call. Never claim an action is done until you receive its tool result. If the user just wants information, answer from the live state below without calling a tool. Keep replies concise. For terminal commands, prefer the least-privileged command that works and avoid destructive operations unless clearly asked.`;
+# Environment
+- Host: Ubuntu Linux on aarch64 (ARM, Oracle Ampere), 4 vCPU / 24 GB RAM. You run as user 'ubuntu' (has passwordless sudo).
+- Each server is either **Fabric** (modded vanilla, loads .jar **mods**) or **Paper** (Bukkit/Spigot fork, loads .jar **plugins**). Check each server's "type" in the live state before assuming. The panel runs each in a tmux session, streams console via the server's run-log, sends commands with tmux send-keys, and keeps servers alive across panel restarts (best-effort).
+- **Java: use Java 21 (LTS)** for these servers. Java 25 breaks older Fabric loaders with "Unsupported class file major version 69" (the loader's ASM can't parse Java 25 bytecode); newer loaders (~0.19+) tolerate 25. If a server won't boot and you see major version 69, switch its java to /usr/lib/jvm/jdk-21.0.6/bin/java.
+- **Fabric** servers: mods live in <server>/mods/ (.jar), datapacks in <server>/world/datapacks/. Most mods require **Fabric API**. Mods must match the server's exact MC version + the fabric loader, or they fail to load / crash. **Paper** servers: plugins live in <server>/plugins/ (.jar), no loader jar needed; plugins are generally tolerant of minor MC version differences but still target a MC range. A Fabric mod will NOT run on Paper and vice-versa — install the right project type for the platform (install_mod enforces this).
+- Backups: compressed tar.zst in the panel's backups/ dir. Take a backup before risky changes (version upgrades, WorldEdit ops, mass mod changes).
+
+# Your tools (ALL require explicit user Approval before they run — you only PROPOSE)
+- set_server_config: change port / memory (heap, -Xms=-Xmx) / jvmArgs / java path / jar. Applies on next start/restart.
+- console_command: a command to a RUNNING server (no leading slash). e.g. say, list, whitelist add, op, gamerule, time set, weather, tp, save-all, kick, ban, difficulty, gamemode.
+- terminal_command: any host shell command (powerful — has sudo). Prefer read-only/least-privilege; avoid destructive ops unless explicitly asked.
+- server_lifecycle: start / stop (graceful) / restart / kill (force, no save — last resort).
+- create_backup: compressed backup (safe running or stopped).
+- install_mod: install a Modrinth project (by slug) matched to the server's MC + platform (mod for Fabric, plugin for Paper).
+
+# How to work (Copilot-style)
+- Use the live state below for facts; never invent server names, versions, or values. If you need data you don't have, gather it first with a READ-ONLY action (e.g. terminal 'tail -n 60 <server>/logs/latest.log', 'ls <server>/mods', 'free -h', 'df -h'; or console '/spark tps', '/spark health', 'list').
+- For multi-step goals, propose the FIRST concrete step, wait for its result, then continue — don't dump many actions at once. Each step is approval-gated, so keep them small and clearly justified.
+- Always say WHY. Never claim something is done before you receive the tool result. If the user only wants information, just answer — don't call a tool.
+- Keep replies concise and skimmable.
+
+# Domain knowledge for diagnosis & tuning
+- **Performance / lag (low TPS, high MSPT, "Can't keep up")**: the spark mod is installed — use '/spark tps' and '/spark profiler --timeout 30' to find the cause, '/spark health' for GC/MSPT. Biggest safe lever is lowering **simulation-distance** (ticking radius) in server.properties; view-distance affects bandwidth/render more than TPS. Common culprits: too-high sim/view distance, entity buildup (mob farms, item entities), chunk-gen during exploration (C2ME helps), hopper/redstone lag. Performance mods that preserve vanilla behavior: lithium (logic), ferritecore (memory), krypton (network), c2me (chunk gen/IO), noisium (worldgen), vmp (many players). Avoid behavior-changing mods unless asked.
+- **JVM**: heap set via the memory field (-Xms=-Xmx, e.g. 6G). The panel applies Aikar's G1GC flags. Don't over-allocate — leave headroom for off-heap (Netty, BlueMap, mmap'd region files, OS page cache). On 24 GB total with another ~3 GB Paper server present, two big heaps can OOM.
+- **Crashes / won't start**: read logs/latest.log and crash-reports/. Typical causes: (1) mod/plugin built for a different MC version (check the Mods tab conflicts; update or remove); (2) missing dependency — on Fabric install Fabric API; (3) Java version (major 69 → use Java 21); (4) OutOfMemory → raise heap or reduce mods/sim-distance; (5) port already in use → change port or stop the conflicting server; (6) eula not accepted (eula.txt must be eula=true — panel sets this); (7) wrong platform — a Fabric mod dropped into a Paper server's plugins/ (or vice-versa) won't load.
+- **server.properties** notables: difficulty (peaceful/easy/normal/hard), gamemode, view-distance, simulation-distance, max-players, online-mode (false=offline/"cracked", a security risk — allows name spoofing), white-list + enforce-whitelist, pvp, hardcore, level-seed, level-name, motd, spawn-protection, sync-chunk-writes=false (async I/O, big win, no gameplay change), allow-flight.
+- **Security**: this panel has no login (Tailscale-only). Keep online-mode=true for public/whitelisted servers to prevent impersonation; be deliberate about op/whitelist. Don't expose ports you don't intend to.
+- **Ports**: MC ports must be free per server and opened in the host firewall + Oracle security list to be reachable publicly; over Tailscale they already work.`;
 
 function fmtGB(b) { return (b / 1073741824).toFixed(1); }
 
@@ -114,7 +141,7 @@ function fmtGB(b) { return (b / 1073741824).toFixed(1); }
 function buildContext(serverId) {
   const servers = cfg.load().servers.map((s) => {
     const st = mc.status(s.id);
-    return `- ${s.id}: MC ${s.mcVersion}, port ${s.port}, heap ${s.memory || '(manual)'}, java ${s.java}, jar ${s.jar}, ${st.running ? 'RUNNING pid ' + st.pid + ' rss ' + fmtGB(st.rssBytes || 0) + 'GB' : 'stopped'}`;
+    return `- ${s.id}: ${s.type === 'paper' ? 'Paper (plugins)' : 'Fabric (mods)'}, MC ${s.mcVersion}, port ${s.port}, heap ${s.memory || '(manual)'}, java ${s.java}, jar ${s.jar}, ${st.running ? 'RUNNING pid ' + st.pid + ' rss ' + fmtGB(st.rssBytes || 0) + 'GB' : 'stopped'}`;
   }).join('\n') || '(none)';
   const h = mc.getHostMetrics();
   let focus = '';
@@ -133,13 +160,16 @@ async function chat({ contents, serverId }) {
     systemInstruction: { parts: [{ text: SYSTEM_BASE + '\n\n## Live state\n' + buildContext(serverId) }] },
     tools: TOOLS,
     contents,
-    generationConfig: { temperature: 0.4 },
+    generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
   };
   const res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (data.error) throw new Error('Gemini: ' + (data.error.message || res.status));
+  if (data.error) {
+    if (data.error.code === 429) throw Object.assign(new Error('Gemini free-tier rate limit reached (20 requests/min) — wait ~30s and try again.'), { status: 429 });
+    throw new Error('Gemini: ' + (data.error.message || res.status));
+  }
   const cand = data.candidates && data.candidates[0];
   const parts = (cand && cand.content && cand.content.parts) || [];
   return {
@@ -207,7 +237,7 @@ async function execute(action) {
     const { serverId, slug, projectType } = args || {};
     const s = cfg.getServer(serverId);
     if (!s) throw Object.assign(new Error('no such server: ' + serverId), { status: 404 });
-    return await fabric.installFromModrinth(serverId, { slug, projectType: projectType || 'mod', loader: 'fabric', gameVersion: s.mcVersion });
+    return await fabric.installFromModrinth(serverId, { slug, projectType: projectType || (s.type === 'paper' ? 'plugin' : 'mod') });
   }
   throw Object.assign(new Error('unknown action: ' + name), { status: 400 });
 }

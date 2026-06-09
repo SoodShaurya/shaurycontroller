@@ -338,6 +338,30 @@ function sampleHostCpu() {
 sampleHostCpu();
 setInterval(sampleHostCpu, 2000).unref();
 
+// Network: Tailscale IP (from the CLI / 100.x interface) + public IP (cached).
+let publicIpCache = null, publicIpTs = 0;
+async function getPublicIp() {
+  if (publicIpCache && Date.now() - publicIpTs < 3600000) return publicIpCache;
+  for (const url of ['https://api.ipify.org', 'https://ifconfig.me/ip']) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (r.ok) { const ip = (await r.text()).trim(); if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) { publicIpCache = ip; publicIpTs = Date.now(); return ip; } }
+    } catch {}
+  }
+  return publicIpCache;
+}
+function getTailscaleIp() {
+  try { const ip = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).split('\n')[0].trim(); if (ip) return ip; } catch {}
+  try {
+    const ifs = os.networkInterfaces();
+    for (const name of Object.keys(ifs)) for (const a of ifs[name] || []) if (a.family === 'IPv4' && a.address.startsWith('100.')) return a.address;
+  } catch {}
+  return null;
+}
+async function getNetwork() {
+  return { tailscaleIp: getTailscaleIp(), publicIp: await getPublicIp(), panelPort: parseInt(process.env.PANEL_PORT || '8095', 10) };
+}
+
 function getHostMetrics() {
   const memTotal = os.totalmem();
   const memUsed = memTotal - os.freemem();
@@ -434,5 +458,5 @@ function reattachAll() {
 module.exports = {
   bus, isRunning, serverPid, start, stop, kill, restart, sendCommand,
   status, consoleBacklog, ensureTailer, reattachAll,
-  launchPreview, getHostMetrics, heapAndFlags, detectJavas,
+  launchPreview, getHostMetrics, heapAndFlags, detectJavas, getNetwork,
 };

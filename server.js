@@ -16,6 +16,9 @@ const files = require('./files');
 const backup = require('./backup');
 const fabric = require('./fabric');
 const ai = require('./ai');
+const playerdata = require('./playerdata');
+const access = require('./access');
+const paper = require('./paper');
 
 cfg.ensureDirs();
 mc.reattachAll();        // resume tailing any servers already running from before a panel restart
@@ -64,6 +67,10 @@ app.get('/api/fabric/meta', asyncH(async (req, res) => {
   res.json(await fabric.metaInfo());
 }));
 
+app.get('/api/paper/versions', asyncH(async (req, res) => {
+  res.json({ versions: await paper.versions() });
+}));
+
 // ---------------------------------------------------------------------------
 // Server list & lifecycle
 // ---------------------------------------------------------------------------
@@ -73,7 +80,7 @@ app.get('/api/servers', asyncH(async (req, res) => {
     status: mc.status(s.id),
     backup: backup.jobStatus(s.id),
   }));
-  res.json({ servers: list });
+  res.json({ servers: list, host: mc.getHostMetrics() });
 }));
 
 app.get('/api/servers/:id', asyncH(async (req, res) => {
@@ -99,23 +106,57 @@ app.get('/api/java', asyncH(async (req, res) => {
   res.json({ javas: mc.detectJavas(req.query.refresh === '1') });
 }));
 
+app.get('/api/network', asyncH(async (req, res) => {
+  res.json(await mc.getNetwork());
+}));
+
+// ---- player data editor ----------------------------------------------------
+app.get('/api/servers/:id/players', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await playerdata.listPlayers(s.id));
+}));
+app.get('/api/servers/:id/players/:uuid', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await playerdata.readPlayer(s.id, req.params.uuid));
+}));
+app.put('/api/servers/:id/players/:uuid', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await playerdata.writePlayer(s.id, req.params.uuid, req.body || {}));
+}));
+
+app.get('/api/servers/:id/access', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(access.readLists(s.id));
+}));
+app.post('/api/servers/:id/access', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await access.mutate(s.id, req.body || {}));
+}));
+
 // ---- Modrinth browser ------------------------------------------------------
 app.get('/api/modrinth/search', asyncH(async (req, res) => {
   res.json(await fabric.modrinthSearch({
     query: req.query.q || '', projectType: req.query.type || 'mod',
-    loader: req.query.loader || 'fabric', gameVersion: req.query.gameVersion || '',
-    offset: parseInt(req.query.offset || '0', 10),
+    gameVersion: req.query.gameVersion || '', offset: parseInt(req.query.offset || '0', 10),
   }));
 }));
 app.get('/api/modrinth/project/:slug', asyncH(async (req, res) => {
   res.json(await fabric.modrinthProject(req.params.slug));
 }));
 app.get('/api/modrinth/project/:slug/versions', asyncH(async (req, res) => {
-  res.json({ versions: await fabric.modrinthVersions(req.params.slug, { loader: req.query.loader, gameVersion: req.query.gameVersion }) });
+  res.json({ versions: await fabric.modrinthVersions(req.params.slug, { loaders: fabric.loadersForType(req.query.type || 'mod'), gameVersion: req.query.gameVersion }) });
 }));
 app.post('/api/servers/:id/modrinth/install', asyncH(async (req, res) => {
   const s = requireServer(req, res); if (!s) return;
   res.json({ ok: true, ...(await fabric.installFromModrinth(s.id, req.body || {})) });
+}));
+app.get('/api/servers/:id/mods/installed', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json(await fabric.installedMods(s.id));
+}));
+app.post('/api/servers/:id/mods/update', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  res.json({ ok: true, ...(await fabric.updateMod(s.id, req.body || {})) });
 }));
 
 // ---- AI agent (Gemini, human-in-the-loop) ----------------------------------
@@ -168,6 +209,22 @@ app.delete('/api/servers/:id', asyncH(async (req, res) => {
   const deleteFiles = req.query.keepFiles !== '1';
   await fabric.deleteServer(req.params.id, { deleteFiles });
   res.json({ ok: true });
+}));
+
+// Stream-upload a world .zip and import it as the server's world.
+app.post('/api/servers/:id/import-world', asyncH(async (req, res) => {
+  const s = requireServer(req, res); if (!s) return;
+  const zipPath = path.join(cfg.serverDir(s.id), '.import-world.zip');
+  await new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(zipPath);
+    let written = 0, aborted = false;
+    const fail = (err) => { if (aborted) return; aborted = true; out.destroy(); fs.rm(zipPath, { force: true }, () => {}); reject(err); };
+    req.on('data', (c) => { written += c.length; if (written > MAX_UPLOAD_BYTES) { req.destroy(); fail(Object.assign(new Error('zip too large'), { status: 413 })); } });
+    req.on('error', fail); out.on('error', fail);
+    out.on('finish', () => { if (!aborted) resolve(); });
+    req.pipe(out);
+  });
+  res.json({ ok: true, ...(await fabric.importWorld(s.id, zipPath)) });
 }));
 
 app.post('/api/servers/:id/start', asyncH(async (req, res) => {

@@ -58,8 +58,20 @@ const FUNCTIONS = [
       },
     },
     {
+      name: 'read_console',
+      description: 'Read the most recent console output for a server. This reads the panel\'s live run-log directly (native) — it is the correct way to see what a server is printing. Do NOT use docker/tail for this.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serverId: { type: 'string' },
+          lines: { type: 'integer', description: 'how many recent lines to return (default 80, max 300)' },
+        },
+        required: ['serverId'],
+      },
+    },
+    {
       name: 'terminal_command',
-      description: 'Run a shell command on the host (as user ubuntu, which has sudo). Use for diagnostics or host changes. Prefer read-only commands; be careful — this is powerful.',
+      description: 'Run a shell command on the host (as user ubuntu, which has sudo). Use for diagnostics or host changes. Prefer read-only commands; be careful, this is powerful. NOTE: panel-managed servers run under tmux, NOT Docker — never use docker commands on them.',
       parameters: {
         type: 'object',
         properties: { command: { type: 'string' } },
@@ -109,6 +121,7 @@ const SYSTEM_BASE = `You are "Copilot", the expert in-panel operations assistant
 # Environment
 - Host: Ubuntu Linux on aarch64 (ARM, Oracle Ampere), 4 vCPU / 24 GB RAM. You run as user 'ubuntu' (has passwordless sudo).
 - Each server is either **Fabric** (modded vanilla, loads .jar **mods**) or **Paper** (Bukkit/Spigot fork, loads .jar **plugins**). Check each server's "type" in the live state before assuming. The panel runs each in a tmux session, streams console via the server's run-log, sends commands with tmux send-keys, and keeps servers alive across panel restarts (best-effort).
+- **These panel-managed servers are plain Java processes under tmux — there is NO Docker involved.** Never use \`docker logs\`, \`docker exec\`, or any docker command on them. To see console output use the **read_console** tool (it reads the live run-log natively). The on-disk log is \`${cfg.BASE_DIR}/servers/<id>/logs/latest.log\` and crash reports are in \`${cfg.BASE_DIR}/servers/<id>/crash-reports/\` if you need the terminal for older history.
 - **Java: use Java 21 (LTS)** for these servers. Java 25 breaks older Fabric loaders with "Unsupported class file major version 69" (the loader's ASM can't parse Java 25 bytecode); newer loaders (~0.19+) tolerate 25. If a server won't boot and you see major version 69, switch its java to /usr/lib/jvm/jdk-21.0.6/bin/java.
 - **Fabric** servers: mods live in <server>/mods/ (.jar), datapacks in <server>/world/datapacks/. Most mods require **Fabric API**. Mods must match the server's exact MC version + the fabric loader, or they fail to load / crash. **Paper** servers: plugins live in <server>/plugins/ (.jar), no loader jar needed; plugins are generally tolerant of minor MC version differences but still target a MC range. A Fabric mod will NOT run on Paper and vice-versa — install the right project type for the platform (install_mod enforces this).
 - Backups: compressed tar.zst in the panel's backups/ dir. Take a backup before risky changes (version upgrades, WorldEdit ops, mass mod changes).
@@ -116,13 +129,14 @@ const SYSTEM_BASE = `You are "Copilot", the expert in-panel operations assistant
 # Your tools (ALL require explicit user Approval before they run — you only PROPOSE)
 - set_server_config: change port / memory (heap, -Xms=-Xmx) / jvmArgs / java path / jar. Applies on next start/restart.
 - console_command: a command to a RUNNING server (no leading slash). e.g. say, list, whitelist add, op, gamerule, time set, weather, tp, save-all, kick, ban, difficulty, gamemode.
-- terminal_command: any host shell command (powerful — has sudo). Prefer read-only/least-privilege; avoid destructive ops unless explicitly asked.
+- read_console: read a server's recent console output natively (the right way to inspect logs — never shell out to docker/tail for this).
+- terminal_command: any host shell command (powerful — has sudo). Prefer read-only/least-privilege; avoid destructive ops unless explicitly asked. Don't use docker for the panel's servers — they're tmux, not containers.
 - server_lifecycle: start / stop (graceful) / restart / kill (force, no save — last resort).
 - create_backup: compressed backup (safe running or stopped).
 - install_mod: install a Modrinth project (by slug) matched to the server's MC + platform (mod for Fabric, plugin for Paper).
 
 # How to work (Copilot-style)
-- Use the live state below for facts; never invent server names, versions, or values. If you need data you don't have, gather it first with a READ-ONLY action (e.g. terminal 'tail -n 60 <server>/logs/latest.log', 'ls <server>/mods', 'free -h', 'df -h'; or console '/spark tps', '/spark health', 'list').
+- Use the live state below for facts; never invent server names, versions, or values. If you need data you don't have, gather it first with a READ-ONLY action: use **read_console** for a server's console/log output (not docker/tail), console 'list' / '/spark tps' / '/spark health' for in-game state, and terminal only for host-level things ('free -h', 'df -h', 'ls <server>/mods').
 - For multi-step goals, propose the FIRST concrete step, wait for its result, then continue — don't dump many actions at once. Each step is approval-gated, so keep them small and clearly justified.
 - Always say WHY. Never claim something is done before you receive the tool result. If the user only wants information, just answer — don't call a tool.
 - Keep replies concise and skimmable.
@@ -226,6 +240,13 @@ async function execute(action) {
     await new Promise((r) => setTimeout(r, 900));
     const tail = mc.consoleBacklog(serverId, 2000).split('\n').filter(Boolean).slice(-8).join('\n');
     return { ok: true, sent: command, recentConsole: tail };
+  }
+  if (name === 'read_console') {
+    const { serverId, lines } = args || {};
+    if (!cfg.getServer(serverId)) throw Object.assign(new Error('no such server: ' + serverId), { status: 404 });
+    const n = Math.min(300, Math.max(1, parseInt(lines, 10) || 80));
+    const tail = mc.consoleBacklog(serverId, 96000).split('\n').filter(Boolean).slice(-n).join('\n');
+    return { ok: true, serverId, lines: n, running: mc.isRunning(serverId), console: tail || '(no recent console output)' };
   }
   if (name === 'terminal_command') {
     if (!args || !args.command) throw Object.assign(new Error('command required'), { status: 400 });

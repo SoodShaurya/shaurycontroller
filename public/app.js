@@ -1451,10 +1451,11 @@ async function aiTurn(userText) {
 }
 function renderActionCard(fc) {
   const a = fc.args || {};
-  const kind = fc.name === 'terminal_command' ? 'terminal' : fc.name === 'console_command' ? 'console' : 'config';
+  const kind = fc.name === 'terminal_command' ? 'terminal' : (fc.name === 'console_command' || fc.name === 'read_console') ? 'console' : 'config';
   const labels = {
     set_server_config: icon('gear') + ' modify config', console_command: icon('terminal') + ' console command', terminal_command: icon('alert') + ' host terminal command',
     server_lifecycle: icon('gear') + ' server: ' + esc(a.action || 'lifecycle'), create_backup: icon('archive') + ' create backup', install_mod: icon('package') + ' install mod',
+    read_console: icon('terminal') + ' read console',
   };
   const label = labels[fc.name] || esc(fc.name);
   let body = '';
@@ -1465,6 +1466,8 @@ function renderActionCard(fc) {
       `${esc(k)}: <span class="old">${esc(String(srv[k] ?? '∅'))}</span> → <span class="new">${esc(String(v))}</span>`).join('<br>') + '</div>';
   } else if (fc.name === 'console_command') {
     body = `<pre>[${esc(a.serverId)}] &gt; ${esc(a.command)}</pre>`;
+  } else if (fc.name === 'read_console') {
+    body = `<pre>read console of ${esc(a.serverId)}${a.lines ? ' (' + esc(String(a.lines)) + ' lines)' : ''}</pre>`;
   } else if (fc.name === 'terminal_command') {
     body = `<pre>$ ${esc(a.command)}</pre>`;
   } else if (fc.name === 'server_lifecycle') {
@@ -1484,7 +1487,7 @@ function renderActionCard(fc) {
     try {
       const r = await api('POST', '/api/ai/execute', { action: { name: fc.name, args: fc.args } });
       result.className = 'ai-result ok';
-      const summary = r.output || r.recentConsole || (r.file ? `installed ${r.file} → ${r.dir}/` : '')
+      const summary = r.output || r.console || r.recentConsole || (r.file ? `installed ${r.file} → ${r.dir}/` : '')
         || (r.action ? `${r.action} done (running=${r.running})` : '') || (r.startedBackup ? `backup started: ${r.startedBackup}` : '') || r.note || 'done';
       result.textContent = summary;
       resolveAction(fc, r);

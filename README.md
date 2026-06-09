@@ -75,7 +75,7 @@ There's a floating assistant backed by DeepSeek. It reads your live server and h
 *proposes* actions: change a config, run a console command, run a shell command on the box, restart
 something, take a backup, install a mod. The catch, and the whole point, is that **nothing runs until
 you click Approve.** The chat endpoint only ever suggests; a separate approve/execute step is the only
-thing that actually does anything. So it's handy for "why is tardcentral eating CPU" without handing
+thing that actually does anything. So it's handy for "why is [server] eating CPU" without handing
 an LLM the keys to your server.
 
 The API key lives in `secrets.json` (gitignored, chmod 600) and never touches the browser, since all
